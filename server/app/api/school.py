@@ -1,8 +1,187 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, List
+from sqlalchemy.orm import Session
 from app.schemas.school import GoalRecommendationRequest, GoalRecommendationResponse, LearningStep
+from app.schemas.rag import (
+    ScaffoldingRecommendationRequest,
+    ScaffoldingRecommendation,
+    RAGAnalysisResult,
+    StudentProgressResponse,
+    VectorStoreStatus
+)
+from app.services.rag_orchestrator import RAGOrchestrator
+from app.db.database import get_db
+from app.db.models import Feedback
 
 router = APIRouter()
+
+# 기존 /goals 엔드포인트는 유지
+
+@router.post("/scaffolding-recommendation", response_model=ScaffoldingRecommendation)
+async def get_scaffolding_recommendation(
+    request: ScaffoldingRecommendationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    스캐폴딩 추천 API - RAG 기반
+    선생님/부모님의 아동 상태 설명을 분석하여 적절한 스캐폴딩 전략 추천
+    """
+    try:
+        orchestrator = RAGOrchestrator()
+
+        # RAG 분석 수행
+        analysis_result = orchestrator.analyze_and_recommend(request, db)
+
+        # 결과를 데이터베이스에 저장
+        feedback = Feedback(
+            student_id=request.student_id,
+            disability_type=request.disability_type,
+            teacher_description=request.teacher_description,
+            llm_analysis=analysis_result.llm_analysis.dict(),
+            scaffolding_recommendations=analysis_result.scaffolding_recommendation.dict(),
+            performance=f"AI 분석: {analysis_result.llm_analysis.detected_level} 수준",
+            scaffolding_effectiveness="AI 추천 적용 전"
+        )
+
+        db.add(feedback)
+        db.commit()
+        db.refresh(feedback)
+
+        return analysis_result.scaffolding_recommendation
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"스캐폴딩 추천 생성 실패: {str(e)}")
+
+@router.get("/student-progress/{student_id}", response_model=StudentProgressResponse)
+async def get_student_progress(
+    student_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    학생 진행 상황 조회 API
+    특정 학생의 과거 피드백과 추천사항 이력을 반환
+    """
+    try:
+        # 학생의 모든 피드백 조회
+        feedbacks = db.query(Feedback).filter(
+            Feedback.student_id == student_id
+        ).order_by(Feedback.created_at.desc()).all()
+
+        # 피드백 데이터를 dict로 변환
+        feedback_list = []
+        for fb in feedbacks:
+            feedback_dict = {
+                'id': fb.id,
+                'performance': fb.performance,
+                'scaffolding_effectiveness': fb.scaffolding_effectiveness,
+                'disability_type': fb.disability_type,
+                'teacher_description': fb.teacher_description,
+                'llm_analysis': fb.llm_analysis,
+                'scaffolding_recommendations': fb.scaffolding_recommendations,
+                'created_at': fb.created_at.isoformat() if fb.created_at else None
+            }
+            feedback_list.append(feedback_dict)
+
+        # 진행 상황 요약 생성
+        progress_summary = _generate_progress_summary(feedback_list)
+
+        return StudentProgressResponse(
+            student_id=student_id,
+            feedbacks=feedback_list,
+            progress_summary=progress_summary
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"학생 진행 상황 조회 실패: {str(e)}")
+
+@router.post("/initialize-vector-store", response_model=Dict[str, str])
+async def initialize_vector_store(force_recreate: bool = False):
+    """
+    벡터 스토어 초기화 API
+    특수교육 성취기준 데이터를 벡터화하여 저장
+    """
+    try:
+        from app.services.rag_service import RAGService
+
+        rag_service = RAGService()
+
+        success = rag_service.initialize_vector_store(force_recreate=force_recreate)
+
+        if success:
+            info = rag_service.get_collection_info()
+            return {
+                "status": "success",
+                "message": "벡터 스토어가 성공적으로 초기화되었습니다.",
+                "details": f"총 {info.get('document_count', 0)}개의 문서가 인덱싱되었습니다."
+            }
+        else:
+            raise HTTPException(status_code=500, detail="벡터 스토어 초기화 실패")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"벡터 스토어 초기화 중 오류 발생: {str(e)}")
+
+@router.get("/vector-store-status", response_model=VectorStoreStatus)
+async def get_vector_store_status():
+    """
+    벡터 스토어 상태 조회 API
+    """
+    try:
+        from app.services.rag_service import RAGService
+
+        rag_service = RAGService()
+        info = rag_service.get_collection_info()
+
+        return VectorStoreStatus(
+            status=info.get("status", "unknown"),
+            document_count=info.get("document_count"),
+            collection_name=info.get("collection_name"),
+            last_updated=None  # TODO: 추후 구현
+        )
+
+    except Exception as e:
+        return VectorStoreStatus(
+            status="error",
+            document_count=None,
+            collection_name=None,
+            last_updated=None
+        )
+
+def _generate_progress_summary(feedbacks: List[Dict]) -> str:
+    """학생의 진행 상황 요약 생성"""
+    if not feedbacks:
+        return "아직 피드백 데이터가 없습니다."
+
+    total_feedbacks = len(feedbacks)
+
+    # 최근 피드백 분석
+    recent_feedbacks = feedbacks[:3]  # 최근 3개
+
+    # AI 분석 결과 수집
+    levels = []
+    for fb in recent_feedbacks:
+        analysis = fb.get('llm_analysis', {})
+        if isinstance(analysis, dict):
+            level = analysis.get('detected_level')
+            if level:
+                levels.append(level)
+
+    # 수준 분포 분석
+    level_counts = {}
+    for level in levels:
+        level_counts[level] = level_counts.get(level, 0) + 1
+
+    # 요약 생성
+    summary_parts = [f"총 {total_feedbacks}개의 피드백 기록이 있습니다."]
+
+    if level_counts:
+        level_summary = []
+        level_names = {"high": "높음", "medium": "중간", "low": "낮음"}
+        for level, count in level_counts.items():
+            korean_level = level_names.get(level, level)
+            level_summary.append(f"{korean_level} 수준: {count}회")
+        summary_parts.append(f"최근 분석 결과: {', '.join(level_summary)}")
+
+    return " ".join(summary_parts)
 
 @router.post("/goals", response_model=GoalRecommendationResponse)
 async def recommend_goals(request: GoalRecommendationRequest):

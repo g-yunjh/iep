@@ -31,6 +31,10 @@ class Feedback(Base):
     student_id = Column(Integer, ForeignKey("students.id"))
     performance = Column(String)  # 학습 수행도
     scaffolding_effectiveness = Column(Text)  # 스캐폴딩 효과성 피드백
+    disability_type = Column(String, nullable=True)  # 장애 유형 (지적장애, 학습장애, 자폐성장애 등)
+    teacher_description = Column(Text, nullable=True)  # 선생님/부모님의 아동 상태 설명
+    llm_analysis = Column(JSON, nullable=True)  # LLM 분석 결과 (JSON)
+    scaffolding_recommendations = Column(JSON, nullable=True)  # 스캐폴딩 추천사항 (JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     student = relationship("Student", back_populates="feedbacks")
