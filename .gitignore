@@ -8,15 +8,20 @@ client/dist/
 client/.env.local
 client/.env.*.local
 
-# Backend (FastAPI / Python)
+# Backend (Python/FastAPI)
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
 server/venv/
-server/__pycache__/
-server/app/__pycache__/
-server/*.py[cod]
 server/.env
-server/iep.db
+
+# Database (SQLite)
+server/*.db
+server/*.db-journal
+
+# Data (Public Data)
 server/data/*.json
-!server/data/sample.json  # 샘플 데이터만 제외하고 실제 데이터는 무시
+!server/data/sample.json
 
 # IDE
 .vscode/
