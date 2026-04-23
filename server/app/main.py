@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import home, school, center
+from app.api import home, school, center, rag
 from app.db import models, database
 
 app = FastAPI(title="IEP API", version="1.0.0")
 
-# CORS 설정 (필요시)
+# CORS 설정 (교차 출처)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,6 +22,7 @@ models.Base.metadata.create_all(bind=database.engine)
 app.include_router(home.router, prefix="/home", tags=["Home"])
 app.include_router(school.router, prefix="/school", tags=["School"])
 app.include_router(center.router, prefix="/center", tags=["Center"])
+app.include_router(rag.router, prefix="/rag", tags=["RAG"])
 
 @app.get("/")
 async def root():

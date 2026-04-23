@@ -93,3 +93,57 @@ class StudentProgressResponse(BaseModel):
     student_id: int
     feedbacks: List[Dict[str, Any]] = Field(..., description="List of past feedback and recommendations")
     progress_summary: Optional[str] = Field(None, description="Summary of student's progress over time")
+
+
+# =============================================================================
+# Career RAG Schemas
+# =============================================================================
+
+class CareerRecommendationRequest(BaseModel):
+    """Request model for career recommendation based on student's current skills/learning."""
+
+    student_id: int = Field(..., description="ID of the student")
+    current_skills: str = Field(..., description="Student's current skills or learning content (e.g., '기본적인 덧셈 계산', '글자 쓰기')")
+    grade: Optional[str] = Field(None, description="Student's grade")
+    interests: Optional[List[str]] = Field(None, description="Student's interests or preferred activities")
+    disability_type: Optional[str] = Field(None, description="Type of disability for personalized recommendations")
+
+
+class RecommendedCareer(BaseModel):
+    """Recommended career with match score and required skills."""
+
+    job_id: str = Field(..., description="Job ID from career data")
+    job_title: str = Field(..., description="Job title")
+    category: str = Field(..., description="Job category")
+    match_score: float = Field(..., description="Match score based on current skills (0.0-1.0)")
+    required_skills: List[str] = Field(..., description="Skills required for this job")
+    outlook: str = Field(..., description="Career outlook and scaffolding information")
+
+
+class SkillGap(BaseModel):
+    """Analysis of skill gaps between current and required skills."""
+
+    job_title: str = Field(..., description="Target job title")
+    current_level: List[str] = Field(..., description="Skills student currently has")
+    required_level: List[str] = Field(..., description="Skills required for the job")
+    gap_skills: List[str] = Field(..., description="Skills that need development")
+    development_suggestions: List[str] = Field(..., description="Suggestions for developing gap skills")
+
+
+class CareerPath(BaseModel):
+    """Career path from current learning to target career."""
+
+    current_learning: str = Field(..., description="Current learning or skill")
+    target_career: str = Field(..., description="Target career")
+    stages: List[Dict[str, str]] = Field(..., description="Stages from current to target (current, short-term, mid-term, long-term)")
+    estimated_timeline: str = Field(..., description="Estimated time to reach target career")
+
+
+class CareerRecommendationResponse(BaseModel):
+    """Complete career recommendation response."""
+
+    student_id: int = Field(..., description="ID of the student")
+    current_skills: str = Field(..., description="Student's current skills")
+    recommended_careers: List[RecommendedCareer] = Field(..., description="List of recommended careers")
+    skill_gaps: List[SkillGap] = Field(..., description="Analysis of skill gaps")
+    career_paths: List[CareerPath] = Field(..., description="Career paths from current to target")

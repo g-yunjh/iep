@@ -5,17 +5,16 @@ from app.schemas.school import GoalRecommendationRequest, GoalRecommendationResp
 from app.schemas.rag import (
     ScaffoldingRecommendationRequest,
     ScaffoldingRecommendation,
-    RAGAnalysisResult,
     StudentProgressResponse,
     VectorStoreStatus
 )
-from app.services.rag_orchestrator import RAGOrchestrator
 from app.db.database import get_db
 from app.db.models import Feedback
 
 router = APIRouter()
 
 # 기존 /goals 엔드포인트는 유지
+
 
 @router.post("/scaffolding-recommendation", response_model=ScaffoldingRecommendation)
 async def get_scaffolding_recommendation(
@@ -24,33 +23,19 @@ async def get_scaffolding_recommendation(
 ):
     """
     스캐폴딩 추천 API - RAG 기반
-    선생님/부모님의 아동 상태 설명을 분석하여 적절한 스캐폴딩 전략 추천
+    ⚠️ 이 엔드포인트는 deprecated되었습니다.
+    대신 /rag/scaffolding-recommendation를 사용하세요.
     """
-    try:
-        orchestrator = RAGOrchestrator()
-
-        # RAG 분석 수행
-        analysis_result = orchestrator.analyze_and_recommend(request, db)
-
-        # 결과를 데이터베이스에 저장
-        feedback = Feedback(
-            student_id=request.student_id,
-            disability_type=request.disability_type,
-            teacher_description=request.teacher_description,
-            llm_analysis=analysis_result.llm_analysis.dict(),
-            scaffolding_recommendations=analysis_result.scaffolding_recommendation.dict(),
-            performance=f"AI 분석: {analysis_result.llm_analysis.detected_level} 수준",
-            scaffolding_effectiveness="AI 추천 적용 전"
-        )
-
-        db.add(feedback)
-        db.commit()
-        db.refresh(feedback)
-
-        return analysis_result.scaffolding_recommendation
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"스캐폴딩 추천 생성 실패: {str(e)}")
+    # 공통 RAG API로 리다이렉트 안내
+    raise HTTPException(
+        status_code=301,
+        detail={
+            "message": "이 엔드포인트는 deprecated되었습니다. /rag/scaffolding-recommendation를 사용하세요.",
+            "redirect": "/rag/scaffolding-recommendation",
+            "method": "POST",
+            "body": request.dict()
+        }
+    )
 
 @router.get("/student-progress/{student_id}", response_model=StudentProgressResponse)
 async def get_student_progress(
@@ -145,6 +130,11 @@ async def get_vector_store_status():
             collection_name=None,
             last_updated=None
         )
+
+
+# =============================================================================
+# DEPRECATED: These endpoints are now available at /rag/*
+# =============================================================================
 
 def _generate_progress_summary(feedbacks: List[Dict]) -> str:
     """학생의 진행 상황 요약 생성"""

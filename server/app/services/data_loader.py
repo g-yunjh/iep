@@ -1,7 +1,6 @@
-"""
-Data loader for special education curriculum standards.
-Loads JSON files containing achievement standards and converts them into documents
-suitable for vector embedding and RAG retrieval.
+"""Data loader for special education curriculum and career data.
+Loads JSON files containing achievement standards and career data,
+converts them into documents suitable for vector embedding and RAG retrieval.
 """
 
 import json
@@ -60,23 +59,59 @@ class AchievementStandard:
         }
 
 
+@dataclass
+class CareerData:
+    """Represents a single career data document."""
+    job_id: str
+    job_title: str
+    category: str
+    search_keywords: List[str]
+    job_logic: str
+    competency_indicators: Dict[str, Any]
+    roadmap_bank: Dict[str, Any]
+    outlook_scaffolding: str
+
+    def to_document(self) -> Dict[str, Any]:
+        """Convert to a document format suitable for vector embedding."""
+        cognitive = self.competency_indicators.get("cognitive_skills", [])
+        soft = self.competency_indicators.get("soft_skills", [])
+        
+        content = f"""
+직업: {self.job_title}
+분류: {self.category}
+직업 설명: {self.job_logic}
+
+핵심 역량:
+{chr(10).join(f"- {skill}" for skill in cognitive + soft)}
+
+자격증: {', '.join(self.roadmap_bank.get('certifications', []))}
+진로 전망: {self.outlook_scaffolding}
+        """.strip()
+
+        metadata = {
+            "job_id": self.job_id,
+            "job_title": self.job_title,
+            "category": self.category,
+            "source": "career_net",
+            "content_type": "career"
+        }
+
+        return {
+            "content": content,
+            "metadata": metadata,
+            "id": self.job_id
+        }
+
+
 class DataLoader:
-    """Loads and processes special education curriculum data from JSON files."""
+    """Loads and processes special education curriculum and career data from JSON files."""
 
     def __init__(self, data_dir: str = "server/data"):
         self.data_dir = Path(data_dir)
         self.logger = logging.getLogger(__name__)
 
     def load_standards_from_json(self, filename: str) -> List[AchievementStandard]:
-        """
-        Load achievement standards from a JSON file.
-
-        Args:
-            filename: Name of the JSON file in the data directory
-
-        Returns:
-            List of AchievementStandard objects
-        """
+        """Load achievement standards from a JSON file."""
         file_path = self.data_dir / filename
 
         if not file_path.exists():
@@ -109,16 +144,97 @@ class DataLoader:
             self.logger.error(f"Error loading {filename}: {e}")
             raise
 
-    def load_all_standards(self) -> List[AchievementStandard]:
-        """
-        Load all achievement standards from available JSON files.
+    def load_career_from_json(self, filename: str) -> List[CareerData]:
+        """Load career data from a JSON file."""
+        file_path = self.data_dir / "careers" / filename
 
-        Currently supports:
-        - special_education_standards.json
-        """
+        if not file_path.exists():
+            raise FileNotFoundError(f"Data file not found: {file_path}")
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            careers = []
+            for item in data:
+                career = CareerData(
+                    job_id=item.get('job_id', ''),
+                    job_title=item.get('job_title', ''),
+                    category=item.get('category', ''),
+                    search_keywords=item.get('search_keywords', []),
+                    job_logic=item.get('job_logic', ''),
+                    competency_indicators=item.get('competency_indicators', {}),
+                    roadmap_bank=item.get('roadmap_bank', {}),
+                    outlook_scaffolding=item.get('outlook_scaffolding', '')
+                )
+                careers.append(career)
+
+            self.logger.info(f"Loaded {len(careers)} career data from {filename}")
+            return careers
+
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Invalid JSON in {filename}: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Error loading {filename}: {e}")
+            raise
+
+    def load_curriculum_from_directory(self) -> List[AchievementStandard]:
+        """Load all curriculum data from the curriculum directory."""
+        all_standards = []
+        curriculum_dir = self.data_dir / "curriculum"
+
+        if not curriculum_dir.exists():
+            self.logger.warning("Curriculum directory not found")
+            return all_standards
+
+        # Walk through all subdirectories
+        for subject_dir in curriculum_dir.iterdir():
+            if subject_dir.is_dir():
+                subject = subject_dir.name
+                # Load all JSON files in the subject directory
+                for json_file in subject_dir.glob("*.json"):
+                    try:
+                        standards = self._load_curriculum_file(json_file, subject)
+                        all_standards.extend(standards)
+                    except Exception as e:
+                        self.logger.error(f"Error loading {json_file}: {e}")
+
+        self.logger.info(f"Loaded {len(all_standards)} curriculum standards total")
+        return all_standards
+
+    def _load_curriculum_file(self, file_path: Path, subject: str) -> List[AchievementStandard]:
+        """Load a single curriculum JSON file."""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        standards = []
+        for item in data:
+            # Extract grade from file or item
+            grade = item.get('grade', file_path.stem)
+            
+            standard = AchievementStandard(
+                grade=grade,
+                subject=subject,
+                disability_type=item.get('disability_type', ''),
+                achievement_standard=item.get('goal', ''),
+                learning_objectives=item.get('search_keywords', []),
+                scaffolding_levels=item.get('scaffolding_bank', {}),
+                activities=item.get('diagnostic_criteria', [])
+            )
+            standards.append(standard)
+
+        return standards
+
+    def load_all_standards(self) -> List[AchievementStandard]:
+        """Load all achievement standards from available JSON files."""
         all_standards = []
 
-        # Load special education standards
+        # Load from curriculum directory
+        curriculum_standards = self.load_curriculum_from_directory()
+        all_standards.extend(curriculum_standards)
+
+        # Load special education standards (legacy)
         try:
             standards = self.load_standards_from_json("special_education_standards.json")
             all_standards.extend(standards)
@@ -127,30 +243,53 @@ class DataLoader:
         except Exception as e:
             self.logger.error(f"Error loading special education standards: {e}")
 
-        # Future: Add more JSON files as needed
-        # try:
-        #     standards = self.load_standards_from_json("standards_pool.json")
-        #     all_standards.extend(standards)
-        # except FileNotFoundError:
-        #     self.logger.warning("standards_pool.json not found")
-
         return all_standards
 
-    def get_documents_for_embedding(self) -> List[Dict[str, Any]]:
+    def load_all_careers(self) -> List[CareerData]:
+        """Load all career data from JSON files."""
+        all_careers = []
+        careers_dir = self.data_dir / "careers"
+
+        if not careers_dir.exists():
+            self.logger.warning("Careers directory not found")
+            return all_careers
+
+        # Load all job batch files
+        for json_file in sorted(careers_dir.glob("jobs_batch_*.json")):
+            try:
+                careers = self.load_career_from_json(json_file.name)
+                all_careers.extend(careers)
+            except Exception as e:
+                self.logger.error(f"Error loading {json_file}: {e}")
+
+        self.logger.info(f"Loaded {len(all_careers)} career data total")
+        return all_careers
+
+    def get_documents_for_embedding(self, data_type: str = "all") -> List[Dict[str, Any]]:
         """
-        Get all standards as documents ready for vector embedding.
+        Get documents ready for vector embedding.
+
+        Args:
+            data_type: Type of data to load ("curriculum", "career", or "all")
 
         Returns:
             List of document dictionaries with content, metadata, and IDs
         """
-        standards = self.load_all_standards()
         documents = []
 
-        for standard in standards:
-            doc = standard.to_document()
-            documents.append(doc)
+        if data_type in ("all", "curriculum"):
+            standards = self.load_all_standards()
+            for standard in standards:
+                doc = standard.to_document()
+                documents.append(doc)
 
-        self.logger.info(f"Prepared {len(documents)} documents for embedding")
+        if data_type in ("all", "career"):
+            careers = self.load_all_careers()
+            for career in careers:
+                doc = career.to_document()
+                documents.append(doc)
+
+        self.logger.info(f"Prepared {len(documents)} documents for embedding ({data_type})")
         return documents
 
     def get_standards_by_criteria(
@@ -159,17 +298,7 @@ class DataLoader:
         subject: Optional[str] = None,
         disability_type: Optional[str] = None
     ) -> List[AchievementStandard]:
-        """
-        Filter standards by specific criteria.
-
-        Args:
-            grade: Filter by grade (e.g., "초등학교 1학년")
-            subject: Filter by subject (e.g., "국어", "수학")
-            disability_type: Filter by disability type (e.g., "지적장애", "학습장애")
-
-        Returns:
-            Filtered list of AchievementStandard objects
-        """
+        """Filter standards by specific criteria."""
         all_standards = self.load_all_standards()
         filtered = all_standards
 
