@@ -177,23 +177,67 @@ async def get_career_recommendation(
 @router.get("/career-search")
 async def search_careers(
     query: str,
-    k: int = 5
+    k: int = 5,
+    student_id: Optional[int] = None,  # 학생 ID 파라미터 추가
+    db: Session = Depends(get_db)      # DB 세션 추가
 ):
     """
-    커리어 데이터 검색 API
-    학생의 현재 학습 내용이나 관심 분야를 기반으로 관련 직업을 검색합니다.
+    커리어 데이터 검색 및 역량 격차 분석 API
     """
     try:
+        # 1. 기본 직업 검색 수행
         rag_service = RAGService()
         results = rag_service.search_career(query=query, k=k)
+        
+        # 2. 학생 정보가 있을 경우 현재 역량(설명) 가져오기
+        current_skills = ""
+        if student_id:
+            latest_fb = db.query(Feedback).filter(Feedback.student_id == student_id).order_by(Feedback.created_at.desc()).first()
+            if latest_fb:
+                current_skills = latest_fb.teacher_description
+
+        # 3. 검색 결과에 역량 격차 정보 추가
+        enhanced_results = []
+        for res in results:
+            content = res.get("content", "")
+            metadata = res.get("metadata", {})
+            
+            # 기존 헬퍼 함수로 역량 추출 및 격차 분석
+            required = _extract_competencies(content)["required"]
+            
+            gap_data = None
+            if current_skills:
+                # 임시 객체를 생성하여 기존 분석 함수 재활용
+                temp_career = RecommendedCareer(
+                    job_id=metadata.get("job_id", ""),
+                    job_title=metadata.get("job_title", ""),
+                    category=metadata.get("category", ""),
+                    match_score=res.get("score", 0),
+                    required_skills=required,
+                    outlook=metadata.get("outlook_scaffolding", "")
+                )
+                gaps = _analyze_skill_gaps(current_skills, [temp_career])
+                gap_data = gaps[0] if gaps else None
+
+            enhanced_results.append({
+                "job_title": metadata.get("job_title"),
+                "required_skills": required,
+                "skill_gap": gap_data,  # 분석된 격차 정보 추가
+                "score": res.get("score")
+            })
+
         return {
             "query": query,
-            "results": results,
-            "count": len(results)
+            "results": enhanced_results,
+            "count": len(enhanced_results)
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"검색 실패: {str(e)}")
 
+    except Exception as e:
+        # 상세한 에러 메시지와 함께 예외 처리
+        raise HTTPException(
+            status_code=500, 
+            detail=f"직업 검색 및 역량 분석 중 오류가 발생했습니다: {str(e)}"
+        )
 
 # =============================================================================
 # Vector Store Management Endpoints
