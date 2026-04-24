@@ -5,9 +5,14 @@ from sqlalchemy.orm import Session
 from app.db import models
 from app.db.database import get_db
 from app.db.models import Feedback
-from app.schemas import center as center_schema
 from app.schemas.rag import StudentProgressResponse
-from app.schemas.school import GoalRecommendationRequest, GoalRecommendationResponse, LearningStep
+from app.schemas.student import (
+    GoalRecommendationRequest,
+    GoalRecommendationResponse,
+    LearningStep,
+    Student,
+    StudentUpdate,
+)
 
 router = APIRouter()
 
@@ -27,16 +32,16 @@ async def get_school_life():
     }
 
 
-@router.get("/students", response_model=List[center_schema.Student])
+@router.get("/students", response_model=List[Student])
 async def get_students(db: Session = Depends(get_db)):
     """전체 학생 목록 조회"""
     return db.query(models.Student).all()
 
 
-@router.patch("/students/{student_id}/traits", response_model=center_schema.Student)
+@router.patch("/students/{student_id}/traits", response_model=Student)
 async def update_student_traits(
     student_id: int,
-    traits: center_schema.StudentUpdate,
+    traits: StudentUpdate,
     db: Session = Depends(get_db),
 ):
     """학생 개인 특성 부분 업데이트"""
