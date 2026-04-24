@@ -26,6 +26,9 @@ class StudentCreate(StudentBase):
 class Student(StudentBase):
     id: int
     created_at: datetime
+    disability_type: Optional[str] = None
+    additional_diagnoses: Optional[str] = None
+    behavioral_traits: Optional[str] = None
     center: Optional[Center] = None
 
     class Config:
@@ -54,5 +57,5 @@ class StrategyResponse(BaseModel):
 
 class StudentUpdate(BaseModel):
     disability_type: Optional[str] = None
-    additional_diagnoses: Optional[List[str]] = None  # ["ADHD", "시각장애"]
+    additional_diagnoses: Optional[str] = None  # "ADHD, 시각장애"
     behavioral_traits: Optional[str] = None           # "어려운 걸 보면 화를 냄"
