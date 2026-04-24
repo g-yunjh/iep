@@ -8,11 +8,10 @@ class Student(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
+    disability_type = Column(String, nullable=True)     # 주 장애 유형
+    additional_diagnoses = Column(String, nullable=True) # 중복 장애 (ADHD 등)
+    behavioral_traits = Column(Text, nullable=True)     # 행동적 특성 (화내는 트리거 등)
     center_id = Column(Integer, ForeignKey("centers.id"), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    center = relationship("Center", back_populates="students")
-    feedbacks = relationship("Feedback", back_populates="student")
 
 class Center(Base):
     __tablename__ = "centers"

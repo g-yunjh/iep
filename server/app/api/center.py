@@ -104,3 +104,29 @@ async def get_centers(db: Session = Depends(get_db)):
     """전체 센터 목록 조회"""
     centers = db.query(models.Center).all()
     return centers
+
+@router.patch("/students/{student_id}/traits", response_model=center_schema.Student)
+async def update_student_traits(
+    student_id: int, 
+    traits: center_schema.StudentUpdate, 
+    db: Session = Depends(get_db)
+):
+    """
+    학생의 개인적 특성 및 행동 특성 업데이트
+    - RAG 분석 시 '장애 유형' 외에 추가적인 학생 컨텍스트로 활용됩니다.
+    """
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="학생을 찾을 수 없습니다.")
+
+    # 받은 정보 업데이트 (DB 모델에 필드가 추가되어야 합니다)
+    if traits.disability_type:
+        student.disability_type = traits.disability_type
+    if traits.additional_diagnoses:
+        student.additional_diagnoses = ",".join(traits.additional_diagnoses)
+    if traits.behavioral_traits:
+        student.behavioral_traits = traits.behavioral_traits
+    
+    db.commit()
+    db.refresh(student)
+    return student
