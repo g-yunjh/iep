@@ -23,9 +23,16 @@ from app.schemas.rag import (
 from app.services.rag_orchestrator import RAGOrchestrator
 from app.services.rag_service import RAGService
 from app.db.database import get_db
-from app.db.models import Feedback
+from app.db.models import Feedback, Student
 
 router = APIRouter()
+
+
+def _get_persona_student(db: Session) -> Student:
+    student = db.query(Student).order_by(Student.id.asc()).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="학생 프로필이 없습니다. 먼저 /student/traits에서 프로필을 설정해 주세요.")
+    return student
 
 
 # =============================================================================
@@ -45,6 +52,7 @@ async def get_scaffolding_recommendation(
     단계별 개입 전략(Physical/Verbal Prompt 등)을 추천합니다.
     """
     try:
+        student = _get_persona_student(db)
         orchestrator = RAGOrchestrator()
 
         # RAG 분석 수행
@@ -52,8 +60,8 @@ async def get_scaffolding_recommendation(
 
         # 결과를 데이터베이스에 저장
         feedback = Feedback(
-            student_id=request.student_id,
-            disability_type=request.disability_type,
+            student_id=student.id,
+            disability_type=student.disability_type,
             teacher_description=request.teacher_description,
             llm_analysis=analysis_result.llm_analysis.dict(),
             scaffolding_recommendations=analysis_result.scaffolding_recommendation.dict(),
@@ -120,6 +128,7 @@ async def get_career_recommendation(
     - 커리어넷 데이터 연계: 향후 어떤 직업적 역량으로 이어지는지 시각화
     """
     try:
+        _get_persona_student(db)
         rag_service = RAGService()
         
         # 1. 학생의 현재 역량/학습 내용을 기반으로 관련 직업 검색
@@ -161,7 +170,6 @@ async def get_career_recommendation(
         career_paths = _generate_career_paths(request, recommended_careers)
         
         return CareerRecommendationResponse(
-            student_id=request.student_id,
             current_skills=request.current_skills,
             recommended_careers=recommended_careers,
             skill_gaps=skill_gaps,
@@ -178,8 +186,7 @@ async def get_career_recommendation(
 async def search_careers(
     query: str,
     k: int = 5,
-    student_id: Optional[int] = None,  # 학생 ID 파라미터 추가
-    db: Session = Depends(get_db)      # DB 세션 추가
+    db: Session = Depends(get_db)
 ):
     """
     커리어 데이터 검색 및 역량 격차 분석 API
@@ -189,12 +196,26 @@ async def search_careers(
         rag_service = RAGService()
         results = rag_service.search_career(query=query, k=k)
         
-        # 2. 학생 정보가 있을 경우 현재 역량(설명) 가져오기
+        # 2. 단일 학생 정보에서 현재 역량(설명) 가져오기
         current_skills = ""
-        if student_id:
-            latest_fb = db.query(Feedback).filter(Feedback.student_id == student_id).order_by(Feedback.created_at.desc()).first()
-            if latest_fb:
-                current_skills = latest_fb.teacher_description
+        student = db.query(Student).order_by(Student.id.asc()).first()
+        if student:
+            latest_fb = (
+                db.query(Feedback)
+                .filter(Feedback.student_id == student.id)
+                .order_by(Feedback.created_at.desc())
+                .first()
+            )
+            current_skills = (
+                latest_fb.teacher_description
+                if latest_fb and latest_fb.teacher_description
+                else " ".join(
+                    filter(
+                        None,
+                        [student.current_level, student.behavioral_traits, student.additional_diagnoses],
+                    )
+                )
+            )
 
         # 3. 검색 결과에 역량 격차 정보 추가
         enhanced_results = []

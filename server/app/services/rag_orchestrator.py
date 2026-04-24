@@ -19,7 +19,7 @@ from ..schemas.rag import (
     LearningActivity,
     ScaffoldingLevel
 )
-from ..db.models import Feedback
+from ..db.models import Feedback, Student
 
 logger = logging.getLogger(__name__)
 
@@ -54,17 +54,24 @@ class RAGOrchestrator:
 
         try:
             # Step 1: Get past feedback for context
-            past_feedback = self._get_past_feedback(request.student_id, request.past_feedback_ids, db)
+            student = self._get_persona_student(db)
+            if not student:
+                raise ValueError("학생 프로필이 없습니다.")
+
+            past_feedback = self._get_past_feedback(student.id, request.past_feedback_ids, db)
 
             # Step 2: Search for relevant achievement standards
-            retrieved_standards = self._retrieve_relevant_standards(request)
+            retrieved_standards = self._retrieve_relevant_standards(
+                request=request,
+                disability_type=student.disability_type or "",
+            )
 
             # Step 3: Analyze with LLM
             llm_analysis = self.llm_service.analyze_student_description(
                 teacher_description=request.teacher_description,
                 grade=request.grade,
                 subject=request.subject,
-                disability_type=request.disability_type,
+                disability_type=student.disability_type or "",
                 retrieved_standards=retrieved_standards,
                 past_feedback=past_feedback
             )
@@ -81,7 +88,6 @@ class RAGOrchestrator:
 
             # Step 6: Create complete result
             result = RAGAnalysisResult(
-                student_id=request.student_id,
                 teacher_description=request.teacher_description,
                 retrieved_standards=retrieved_standards,
                 llm_analysis=llm_analysis,
@@ -89,7 +95,7 @@ class RAGOrchestrator:
                 processing_time=processing_time
             )
 
-            self.logger.info(f"RAG analysis completed for student {request.student_id} in {processing_time:.2f}s")
+            self.logger.info(f"RAG analysis completed for student {student.id} in {processing_time:.2f}s")
             return result
 
         except Exception as e:
@@ -98,7 +104,6 @@ class RAGOrchestrator:
 
             # Return error result
             return RAGAnalysisResult(
-                student_id=request.student_id,
                 teacher_description=request.teacher_description,
                 retrieved_standards=[],
                 llm_analysis=self.llm_service._parse_llm_response({}),  # Fallback
@@ -108,7 +113,8 @@ class RAGOrchestrator:
 
     def _retrieve_relevant_standards(
         self,
-        request: ScaffoldingRecommendationRequest
+        request: ScaffoldingRecommendationRequest,
+        disability_type: str,
     ) -> List[AchievementStandardReference]:
         """
         Retrieve relevant achievement standards from vector store.
@@ -120,14 +126,14 @@ class RAGOrchestrator:
             List of relevant achievement standards
         """
         # Create search query from teacher description
-        search_query = f"{request.grade} {request.subject} {request.disability_type} {request.teacher_description}"
+        search_query = f"{request.grade} {request.subject} {disability_type} {request.teacher_description}"
 
         # Search vector store
         search_results = self.rag_service.search_similar_standards(
             query=search_query,
             grade=request.grade,
             subject=request.subject,
-            disability_type=request.disability_type,
+            disability_type=disability_type,
             k=3,  # Get top 3 most relevant standards
             score_threshold=0.6
         )
@@ -234,7 +240,6 @@ class RAGOrchestrator:
         rationale = self._create_rationale(llm_analysis, primary_standard)
 
         return ScaffoldingRecommendation(
-            student_id=request.student_id,
             recommended_level=llm_analysis.detected_level,
             rationale=rationale,
             scaffolding_details=scaffolding_details,
@@ -317,7 +322,6 @@ class RAGOrchestrator:
     def _create_error_recommendation(self, request: ScaffoldingRecommendationRequest) -> ScaffoldingRecommendation:
         """Create a fallback recommendation when analysis fails."""
         return ScaffoldingRecommendation(
-            student_id=request.student_id,
             recommended_level="medium",
             rationale="분석 과정에서 오류가 발생하여 기본 추천을 제공합니다.",
             scaffolding_details=ScaffoldingLevel(
@@ -336,9 +340,12 @@ class RAGOrchestrator:
             achievement_standard=AchievementStandardReference(
                 grade=request.grade,
                 subject=request.subject,
-                disability_type=request.disability_type,
+                disability_type="",
                 standard_text="기본적인 학습 지원이 필요한 수준",
                 relevance_score=0.5
             ),
             additional_notes="전문가와 상담하여 자세한 평가를 받으시길 권장합니다."
         )
+
+    def _get_persona_student(self, db: Session) -> Optional[Student]:
+        return db.query(Student).order_by(Student.id.asc()).first()

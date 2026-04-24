@@ -33,6 +33,7 @@ class StudentCreate(StudentBase):
 class Student(StudentBase):
     id: int
     created_at: datetime
+    current_level: Optional[str] = None
     disability_type: Optional[str] = None
     additional_diagnoses: Optional[str] = None
     behavioral_traits: Optional[str] = None
@@ -43,7 +44,7 @@ class Student(StudentBase):
 
 
 class FeedbackBase(BaseModel):
-    student_id: int
+    student_id: Optional[int] = None
     performance: str
     scaffolding_effectiveness: str
 
@@ -68,26 +69,7 @@ class StrategyResponse(BaseModel):
 
 
 class StudentUpdate(BaseModel):
+    current_level: Optional[str] = None
     disability_type: Optional[str] = None
     additional_diagnoses: Optional[str] = None
     behavioral_traits: Optional[str] = None
-
-
-class GoalRecommendationRequest(BaseModel):
-    subject: str
-    current_level: str
-    grade: int
-
-
-class LearningStep(BaseModel):
-    step_number: int
-    description: str
-    activities: List[str]
-
-
-class GoalRecommendationResponse(BaseModel):
-    subject: str
-    grade: int
-    recommended_goals: List[str]
-    learning_steps: List[LearningStep]
-    rationale: str

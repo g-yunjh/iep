@@ -10,10 +10,8 @@ from pydantic import BaseModel, Field
 class ScaffoldingRecommendationRequest(BaseModel):
     """Request model for scaffolding recommendation based on teacher/parent description."""
 
-    student_id: int = Field(..., description="ID of the student")
     grade: str = Field(..., description="Student's grade (e.g., '초등학교 1학년')")
     subject: str = Field(..., description="Subject (e.g., '국어', '수학')")
-    disability_type: str = Field(..., description="Type of disability (e.g., '지적장애', '학습장애', '자폐성장애')")
     teacher_description: str = Field(..., description="Teacher or parent's description of the child's current state and abilities")
     past_feedback_ids: Optional[List[int]] = Field(None, description="Optional list of past feedback IDs to consider for context")
 
@@ -49,7 +47,6 @@ class AchievementStandardReference(BaseModel):
 class ScaffoldingRecommendation(BaseModel):
     """Complete scaffolding recommendation response."""
 
-    student_id: int = Field(..., description="ID of the student")
     recommended_level: str = Field(..., description="Recommended scaffolding level (high/medium/low)")
     rationale: str = Field(..., description="Explanation of why this level was recommended")
     scaffolding_details: ScaffoldingLevel = Field(..., description="Detailed scaffolding recommendations")
@@ -70,7 +67,6 @@ class LLMAnalysisResult(BaseModel):
 class RAGAnalysisResult(BaseModel):
     """Complete result from RAG analysis including LLM response."""
 
-    student_id: int
     teacher_description: str
     retrieved_standards: List[AchievementStandardReference] = Field(..., description="Standards retrieved from vector store")
     llm_analysis: LLMAnalysisResult = Field(..., description="LLM analysis result")
@@ -90,7 +86,6 @@ class VectorStoreStatus(BaseModel):
 class StudentProgressResponse(BaseModel):
     """Response for student progress history."""
 
-    student_id: int
     feedbacks: List[Dict[str, Any]] = Field(..., description="List of past feedback and recommendations")
     progress_summary: Optional[str] = Field(None, description="Summary of student's progress over time")
 
@@ -102,7 +97,6 @@ class StudentProgressResponse(BaseModel):
 class CareerRecommendationRequest(BaseModel):
     """Request model for career recommendation based on student's current skills/learning."""
 
-    student_id: int = Field(..., description="ID of the student")
     current_skills: str = Field(..., description="Student's current skills or learning content (e.g., '기본적인 덧셈 계산', '글자 쓰기')")
     grade: Optional[str] = Field(None, description="Student's grade")
     interests: Optional[List[str]] = Field(None, description="Student's interests or preferred activities")
@@ -142,7 +136,6 @@ class CareerPath(BaseModel):
 class CareerRecommendationResponse(BaseModel):
     """Complete career recommendation response."""
 
-    student_id: int = Field(..., description="ID of the student")
     current_skills: str = Field(..., description="Student's current skills")
     recommended_careers: List[RecommendedCareer] = Field(..., description="List of recommended careers")
     skill_gaps: List[SkillGap] = Field(..., description="Analysis of skill gaps")
