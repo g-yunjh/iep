@@ -9,12 +9,16 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from langchain_community.vectorstores import Chroma
-from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from .data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
+
+
+def _google_api_key() -> Optional[str]:
+    return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 
 # Collection names
@@ -35,9 +39,10 @@ class RAGService:
     ):
         self.persist_directory = Path(persist_directory)
         self.collection_name = collection_name
-        self.embeddings = OpenAIEmbeddings(
-            model="text-embedding-ada-002",
-            openai_api_key=os.getenv("OPENAI_API_KEY")
+        embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "models/embedding-001")
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            model=embedding_model,
+            google_api_key=_google_api_key(),
         )
         self.vectorstore: Optional[Chroma] = None
         self.data_loader = DataLoader()

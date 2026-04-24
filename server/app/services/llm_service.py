@@ -1,6 +1,6 @@
 """
 LLM Service for analyzing teacher descriptions and generating scaffolding recommendations.
-Uses OpenAI GPT models to process student descriptions and provide educational insights.
+Uses Google Gemini models to process student descriptions and provide educational insights.
 """
 
 import json
@@ -8,12 +8,15 @@ import logging
 import os
 from typing import List, Dict, Any, Optional
 
-from openai import OpenAI
-from pydantic import BaseModel
+import google.generativeai as genai
 
 from ..schemas.rag import LLMAnalysisResult, AchievementStandardReference
 
 logger = logging.getLogger(__name__)
+
+
+def _google_api_key() -> Optional[str]:
+    return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 
 class LLMService:
@@ -21,10 +24,12 @@ class LLMService:
     Service for LLM-powered analysis of student descriptions and scaffolding recommendations.
     """
 
-    def __init__(self, model: str = "gpt-3.5-turbo", temperature: float = 0.3):
-        self.model = model
+    def __init__(self, model: Optional[str] = None, temperature: float = 0.3):
+        self.model_name = model or os.getenv("GEMINI_CHAT_MODEL", "gemini-1.5-flash")
         self.temperature = temperature
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        api_key = _google_api_key()
+        if api_key:
+            genai.configure(api_key=api_key)
         self.logger = logging.getLogger(__name__)
 
     def analyze_student_description(
@@ -51,6 +56,16 @@ class LLMService:
             LLMAnalysisResult with detected level, gaps, and recommendations
         """
 
+        if not _google_api_key():
+            self.logger.error("GOOGLE_API_KEY or GEMINI_API_KEY is not set")
+            return LLMAnalysisResult(
+                detected_level="medium",
+                learning_gaps=["API 키가 설정되지 않았습니다"],
+                recommended_strategies=["GOOGLE_API_KEY 또는 GEMINI_API_KEY를 .env에 설정하세요"],
+                confidence_score=0.0,
+                analysis_summary="Gemini API 키가 없어 분석을 수행할 수 없습니다"
+            )
+
         # Build context from retrieved standards
         standards_context = self._build_standards_context(retrieved_standards)
 
@@ -68,18 +83,18 @@ class LLMService:
         )
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self._get_system_prompt()},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=self.temperature,
-                max_tokens=2000,
-                response_format={"type": "json_object"}
+            model = genai.GenerativeModel(
+                model_name=self.model_name,
+                system_instruction=self._get_system_prompt(),
+                generation_config=genai.GenerationConfig(
+                    temperature=self.temperature,
+                    max_output_tokens=2000,
+                    response_mime_type="application/json",
+                ),
             )
 
-            result_text = response.choices[0].message.content
+            response = model.generate_content(prompt)
+            result_text = response.text
             if not result_text:
                 raise ValueError("Empty response from LLM")
 
