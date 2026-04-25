@@ -56,7 +56,7 @@ async def get_student_profile(db: Session = Depends(get_db)):
     return _get_or_create_persona_student(db)
 
 
-@router.patch("/traits", response_model=Student)
+@router.patch("/", response_model=Student)
 async def update_student_traits(traits: StudentUpdate, db: Session = Depends(get_db)):
     """단일 학생(페르소나) 특성 및 수준 업데이트"""
     student = _get_or_create_persona_student(db)

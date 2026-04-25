@@ -4,27 +4,9 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 
-class CenterBase(BaseModel):
-    name: str
-    strategies: List[str] = []
-
-
-class CenterCreate(CenterBase):
-    pass
-
-
-class Center(CenterBase):
-    id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
 
 class StudentBase(BaseModel):
     name: str
-    center_id: Optional[int] = None
-
 
 class StudentCreate(StudentBase):
     pass
@@ -37,11 +19,16 @@ class Student(StudentBase):
     disability_type: Optional[str] = None
     additional_diagnoses: Optional[str] = None
     behavioral_traits: Optional[str] = None
-    center: Optional[Center] = None
 
     class Config:
         from_attributes = True
 
+class StudentUpdate(BaseModel):
+    name: Optional[str] = None # 이제 이름 수정 가능
+    current_level: Optional[str] = None
+    disability_type: Optional[str] = None
+    additional_diagnoses: Optional[str] = None
+    behavioral_traits: Optional[str] = None
 
 class FeedbackBase(BaseModel):
     student_id: Optional[int] = None
@@ -66,10 +53,3 @@ class StrategyResponse(BaseModel):
     center_name: str
     strategies: List[str]
     student_count: int
-
-
-class StudentUpdate(BaseModel):
-    current_level: Optional[str] = None
-    disability_type: Optional[str] = None
-    additional_diagnoses: Optional[str] = None
-    behavioral_traits: Optional[str] = None
