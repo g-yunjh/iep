@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, List
 from sqlalchemy.orm import Session
@@ -7,6 +9,7 @@ from app.db.database import get_db
 from app.db.models import Feedback
 from app.schemas.rag import StudentProgressResponse
 from app.schemas.student import Student, StudentUpdate
+import app.services.neis_service as neis_service
 
 router = APIRouter()
 
@@ -14,15 +17,24 @@ router = APIRouter()
 @router.get("/school-life", response_model=Dict)
 async def get_school_life():
     """
-    나이스 연동 학교 생활 정보 (식단, 하교 시간, 준비물)
+    나이스 Open API 실시간 연동 (급식, 시간표, 학사일정)
     """
+    today = datetime.now().strftime("%Y%m%d")
+    
+    # 1. 급식 정보 (중식)
+    lunch_menu = neis_service.get_neis_meal(today)
+    
+    # 2. 학사 일정 (오늘의 행사)
+    today_event = neis_service.get_neis_schedule(today)
+    
+    # 3. 시간표 및 계산된 하교 시간
+    timetable, dismissal = neis_service.get_neis_timetable(today, grade="1", class_nm="1")
+
     return {
-        "meal_info": {
-            "lunch": "김치찌개, 불고기, 밥, 김",
-            "snack": "우유, 바나나"
-        },
-        "dismissal_time": "15:30",
-        "tomorrow_prep": ["체육복", "수학 교과서", "필통"]
+        "lunch_menu": lunch_menu,
+        "dismissal_time": dismissal,
+        "academic_calendar": today_event,
+        "today_timetable": timetable
     }
 
 
