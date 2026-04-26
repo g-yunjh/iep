@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
 from app.api import student, rag
 from app.db import models, database
+
+load_dotenv()
 
 app = FastAPI(title="IEP API", version="1.0.0")
 

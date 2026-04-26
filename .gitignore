@@ -15,6 +15,9 @@ client/.env.*.local
 server/venv/
 server/.env
 
+# Vector Store data
+server/vector_store/
+
 # Database (SQLite)
 server/*.db
 server/*.db-journal

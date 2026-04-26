@@ -34,15 +34,23 @@ class RAGService:
 
     def __init__(
         self,
-        persist_directory: str = "server/vector_store",
+        persist_directory: Optional[str] = None,
         collection_name: str = COLLECTION_CURRICULUM
     ):
-        self.persist_directory = Path(persist_directory)
+        project_root = Path(__file__).resolve().parents[2]
+        default_persist_dir = project_root / "vector_store"
+        self.persist_directory = Path(persist_directory) if persist_directory else default_persist_dir
         self.collection_name = collection_name
         embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "models/embedding-001")
+        api_key = _google_api_key()
+        if not api_key:
+            raise ValueError(
+                "API key required for Gemini embeddings. "
+                "Set GOOGLE_API_KEY or GEMINI_API_KEY in environment (or .env)."
+            )
         self.embeddings = GoogleGenerativeAIEmbeddings(
             model=embedding_model,
-            google_api_key=_google_api_key(),
+            google_api_key=api_key,
         )
         self.vectorstore: Optional[Chroma] = None
         self.data_loader = DataLoader()

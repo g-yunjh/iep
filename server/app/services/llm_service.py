@@ -26,7 +26,18 @@ class LLMService:
     """
 
     def __init__(self, model: Optional[str] = None, temperature: float = 0.3):
-        self.model_name = model or os.getenv("GEMINI_CHAT_MODEL", "gemini-1.5-flash")
+        requested_model = model or os.getenv("GEMINI_CHAT_MODEL", "gemini-1.5-flash")
+        # Keep latency/cost predictable: force flash when pro is requested.
+        if "pro" in requested_model.lower():
+            self.model_name = "gemini-1.5-flash"
+            logger.warning(
+                "Requested Gemini chat model '%s' is a pro tier. "
+                "Overriding to '%s'.",
+                requested_model,
+                self.model_name,
+            )
+        else:
+            self.model_name = requested_model
         self.temperature = temperature
         self.logger = logging.getLogger(__name__)
         self.client: Optional[genai.Client] = None
