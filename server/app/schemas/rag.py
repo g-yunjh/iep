@@ -45,6 +45,22 @@ class AchievementStandardReference(BaseModel):
         default_factory=list,
         description="Diagnostic criteria extracted from curriculum data"
     )
+    activities: List[str] = Field(
+        default_factory=list,
+        description="Activity suggestions parsed from curriculum content"
+    )
+    scaffolding_levels: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Level descriptions parsed from curriculum content"
+    )
+    scaffolding_bank_general: List[str] = Field(
+        default_factory=list,
+        description="General scaffolding strategies from curriculum data"
+    )
+    scaffolding_bank_disability_specific: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Disability-specific strategies from curriculum data"
+    )
     relevance_score: float = Field(..., description="How relevant this standard was to the analysis")
 
 

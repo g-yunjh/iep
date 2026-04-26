@@ -5,6 +5,7 @@ Coordinates vector search, LLM analysis, and recommendation generation.
 
 import time
 import logging
+import re
 from typing import List, Dict, Any, Optional
 
 from sqlalchemy.orm import Session
@@ -142,12 +143,17 @@ class RAGOrchestrator:
         standards = []
         for result in search_results:
             metadata = result.get("metadata", {})
+            content = result.get("content", "")
             standard = AchievementStandardReference(
                 grade=metadata.get("grade", ""),
                 subject=metadata.get("subject", ""),
                 disability_type=metadata.get("disability_type", ""),
-                standard_text=self._extract_standard_text(result.get("content", "")),
-                diagnostic_criteria=self._extract_diagnostic_criteria(result.get("content", "")),
+                standard_text=self._extract_standard_text(content),
+                diagnostic_criteria=self._extract_diagnostic_criteria(content),
+                activities=self._extract_activities(content),
+                scaffolding_levels=self._extract_scaffolding_levels(content),
+                scaffolding_bank_general=self._extract_scaffolding_bank_general(content),
+                scaffolding_bank_disability_specific=self._extract_scaffolding_bank_disability_specific(content),
                 relevance_score=result.get("score", 0.0)
             )
             standards.append(standard)
@@ -185,6 +191,116 @@ class RAGOrchestrator:
                 criteria.append(line[1:].strip())
 
         return criteria
+
+    def _extract_activities(self, content: str) -> List[str]:
+        """Extract activities listed under the '활동:' section."""
+        lines = content.split('\n')
+        activities: List[str] = []
+        in_activity_section = False
+
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith("활동:"):
+                in_activity_section = True
+                continue
+
+            if in_activity_section and (line.endswith(":") and not line.startswith("-")):
+                break
+
+            if in_activity_section and line.startswith("-"):
+                activities.append(line[1:].strip())
+
+        return activities
+
+    def _extract_scaffolding_levels(self, content: str) -> Dict[str, str]:
+        """Extract level descriptions from '스캐폴딩 수준' section."""
+        levels: Dict[str, str] = {}
+        lines = content.split('\n')
+        in_scaffolding_section = False
+
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith("스캐폴딩 수준:"):
+                in_scaffolding_section = True
+                continue
+
+            if in_scaffolding_section and (line.endswith(":") and not line.startswith("-")):
+                break
+
+            if not in_scaffolding_section:
+                continue
+
+            if line.startswith("높음:"):
+                levels["high"] = line.replace("높음:", "").strip()
+            elif line.startswith("중간:"):
+                levels["medium"] = line.replace("중간:", "").strip()
+            elif line.startswith("낮음:"):
+                levels["low"] = line.replace("낮음:", "").strip()
+
+        return levels
+
+    def _extract_scaffolding_bank_general(self, content: str) -> List[str]:
+        """
+        Extract general scaffolding strategies.
+        Supports both explicit 'general' section and flattened level lines.
+        """
+        lines = content.split('\n')
+        strategies: List[str] = []
+        in_general_section = False
+
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if re.match(r"^general\s*:\s*$", line, flags=re.IGNORECASE):
+                in_general_section = True
+                continue
+
+            if in_general_section and (line.endswith(":") and not line.startswith("-")):
+                break
+
+            if in_general_section and line.startswith("-"):
+                strategies.append(line[1:].strip())
+
+        return strategies
+
+    def _extract_scaffolding_bank_disability_specific(self, content: str) -> Dict[str, str]:
+        """
+        Extract disability-specific strategies.
+        Expected line format in section: '- 장애유형: 전략내용'
+        """
+        lines = content.split('\n')
+        strategies: Dict[str, str] = {}
+        in_disability_section = False
+
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if re.match(r"^disability_specific\s*:\s*$", line, flags=re.IGNORECASE):
+                in_disability_section = True
+                continue
+
+            if in_disability_section and (line.endswith(":") and not line.startswith("-")):
+                break
+
+            if in_disability_section and line.startswith("-"):
+                entry = line[1:].strip()
+                if ":" in entry:
+                    disability, strategy = entry.split(":", 1)
+                    strategies[disability.strip()] = strategy.strip()
+                else:
+                    strategies["default"] = entry
+
+        return strategies
 
     def _get_past_feedback(
         self,
@@ -254,10 +370,16 @@ class RAGOrchestrator:
         if not primary_standard:
             return self._create_error_recommendation(request)
 
-        # Create scaffolding details based on detected level
+        matched_strategies = self._match_curriculum_strategies(
+            detected_level=llm_analysis.detected_level,
+            primary_standard=primary_standard
+        )
+        # Keep LLM strategies as fallback/additional context.
+        final_strategies = matched_strategies or llm_analysis.recommended_strategies
+
         scaffolding_details = self._create_scaffolding_details(
             detected_level=llm_analysis.detected_level,
-            strategies=llm_analysis.recommended_strategies,
+            strategies=final_strategies,
             primary_standard=primary_standard
         )
 
@@ -281,51 +403,86 @@ class RAGOrchestrator:
         """
         Create detailed scaffolding information based on the detected level.
         """
-        # This is a simplified implementation - in practice, you'd have
-        # more sophisticated logic based on the curriculum data
+        level_descriptions = primary_standard.scaffolding_levels or {}
+        description = level_descriptions.get(detected_level)
+        if not description or description == "N/A":
+            description = "해당 수준에 맞춰 교육과정 기반 스캐폴딩 전략을 적용합니다."
 
-        level_descriptions = {
-            "high": "독립적 학습이 가능한 수준으로 최소한의 시각적 지원 제공",
-            "medium": "중간 수준의 지원이 필요한 단계로 구조화된 학습 환경 제공",
-            "low": "높은 수준의 지원이 필요한 단계로 1:1 지원과 반복 학습 강조"
-        }
-
-        # Create sample activities based on level
         activities = []
-        if detected_level == "high":
-            activities = [
+        for idx, activity_text in enumerate(primary_standard.activities, start=1):
+            activities.append(
                 LearningActivity(
-                    name="독립적 문제 해결",
-                    description="학생이 스스로 문제를 해결하도록 유도",
-                    duration="20분",
-                    materials=["워크시트", "필기구"]
+                    name=f"교육과정 활동 {idx}",
+                    description=activity_text,
+                    duration=None,
+                    materials=None
                 )
-            ]
-        elif detected_level == "medium":
-            activities = [
+            )
+
+        if not activities:
+            activities.append(
                 LearningActivity(
-                    name="시각적 보조 학습",
-                    description="그림 카드나 도식을 활용한 학습",
-                    duration="15분",
-                    materials=["그림 카드", "보드"]
+                    name="기본 활동",
+                    description="해당 성취기준을 중심으로 단계적 지원을 제공합니다.",
+                    duration=None,
+                    materials=None
                 )
-            ]
-        else:  # low
-            activities = [
-                LearningActivity(
-                    name="1:1 지원 활동",
-                    description="교사가 직접 지원하며 단계별 학습 진행",
-                    duration="10분",
-                    materials=["개별 교재", "보상물품"]
-                )
-            ]
+            )
 
         return ScaffoldingLevel(
             level=detected_level,
-            description=level_descriptions.get(detected_level, "적절한 수준의 지원 제공"),
+            description=description,
             activities=activities,
             strategies=strategies
         )
+
+    def _match_curriculum_strategies(
+        self,
+        detected_level: str,
+        primary_standard: AchievementStandardReference
+    ) -> List[str]:
+        """
+        Match strategies from curriculum scaffolding data.
+        Priority:
+        1) explicit scaffolding_bank.general + disability_specific
+        2) fallback to level description line
+        """
+        matched: List[str] = []
+
+        if primary_standard.scaffolding_bank_general:
+            matched.extend(primary_standard.scaffolding_bank_general)
+
+        disability_specific = primary_standard.scaffolding_bank_disability_specific or {}
+        if disability_specific:
+            # Prefer exact disability_type key, then partial match, then default, then first strategy.
+            key = primary_standard.disability_type.strip()
+            if key and key in disability_specific:
+                matched.append(disability_specific[key])
+            elif key:
+                for disability_name, strategy in disability_specific.items():
+                    if key in disability_name or disability_name in key:
+                        matched.append(strategy)
+                        break
+                else:
+                    if "default" in disability_specific:
+                        matched.append(disability_specific["default"])
+            elif "default" in disability_specific:
+                matched.append(disability_specific["default"])
+
+            if not matched and disability_specific:
+                matched.append(next(iter(disability_specific.values())))
+
+        if not matched:
+            level_text = (primary_standard.scaffolding_levels or {}).get(detected_level)
+            if level_text and level_text != "N/A":
+                matched.append(level_text)
+
+        # De-duplicate while preserving order.
+        unique: List[str] = []
+        for item in matched:
+            if item and item not in unique:
+                unique.append(item)
+        return unique
 
     def _create_rationale(self, llm_analysis: Any, primary_standard: AchievementStandardReference) -> str:
         """Create rationale for the recommendation."""
@@ -368,6 +525,10 @@ class RAGOrchestrator:
                 disability_type="",
                 standard_text="기본적인 학습 지원이 필요한 수준",
                 diagnostic_criteria=[],
+                activities=[],
+                scaffolding_levels={},
+                scaffolding_bank_general=[],
+                scaffolding_bank_disability_specific={},
                 relevance_score=0.5
             ),
             additional_notes="전문가와 상담하여 자세한 평가를 받으시길 권장합니다."
