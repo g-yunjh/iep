@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, List
@@ -12,6 +13,16 @@ from app.schemas.student import Student, StudentUpdate
 import app.services.neis_service as neis_service
 
 router = APIRouter()
+
+
+def _normalize_json_field(value):
+    """Normalize JSON/JSON-string fields into Python dict/list for response safety."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return {"raw": value}
+    return value
 
 
 @router.get("/school-life", response_model=Dict)
@@ -91,8 +102,8 @@ async def get_student_progress(db: Session = Depends(get_db)):
                     "scaffolding_effectiveness": fb.scaffolding_effectiveness,
                     "disability_type": fb.disability_type,
                     "teacher_description": fb.teacher_description,
-                    "llm_analysis": fb.llm_analysis,
-                    "scaffolding_recommendations": fb.scaffolding_recommendations,
+                    "llm_analysis": _normalize_json_field(fb.llm_analysis),
+                    "scaffolding_recommendations": _normalize_json_field(fb.scaffolding_recommendations),
                     "created_at": fb.created_at.isoformat() if fb.created_at else None,
                 }
             )

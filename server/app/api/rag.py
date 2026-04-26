@@ -3,6 +3,7 @@ This API is shared across home, school, and center endpoints.
 Provides RAG-based recommendations for scaffolding and career guidance.
 """
 
+import json
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
@@ -27,6 +28,24 @@ from app.db.database import get_db
 from app.db.models import Feedback, Student
 
 router = APIRouter()
+
+
+def _to_json_compatible(model_obj) -> Dict:
+    """
+    Convert a Pydantic model to a DB-safe JSON object.
+    Supports both Pydantic v1 (`dict`) and v2 (`model_dump`).
+    """
+    if model_obj is None:
+        return {}
+
+    if hasattr(model_obj, "model_dump"):
+        return model_obj.model_dump(mode="json")
+
+    if hasattr(model_obj, "dict"):
+        return model_obj.dict()
+
+    # Last-resort fallback for plain dict-like objects.
+    return json.loads(json.dumps(model_obj))
 
 
 def _get_persona_student(db: Session) -> Student:
@@ -64,8 +83,8 @@ async def get_scaffolding_recommendation(
             student_id=student.id,
             disability_type=student.disability_type,
             teacher_description=request.teacher_description,
-            llm_analysis=analysis_result.llm_analysis.dict(),
-            scaffolding_recommendations=analysis_result.scaffolding_recommendation.dict(),
+            llm_analysis=_to_json_compatible(analysis_result.llm_analysis),
+            scaffolding_recommendations=_to_json_compatible(analysis_result.scaffolding_recommendation),
             performance=f"AI 분석: {analysis_result.llm_analysis.detected_level} 수준",
             scaffolding_effectiveness="AI 추천 적용 전"
         )
