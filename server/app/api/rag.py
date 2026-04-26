@@ -5,7 +5,7 @@ Provides RAG-based recommendations for scaffolding and career guidance.
 
 import json
 from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.schemas.rag import (
