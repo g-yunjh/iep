@@ -42,8 +42,11 @@ class LLMService:
         self.logger = logging.getLogger(__name__)
         self.client: Optional[genai.Client] = None
         api_key = _google_api_key()
-        if api_key:
-            self.client = genai.Client(api_key=api_key)
+        if not api_key:
+            raise ValueError(
+                "Gemini API key is required. Set GOOGLE_API_KEY or GEMINI_API_KEY."
+            )
+        self.client = genai.Client(api_key=api_key)
 
     def analyze_student_description(
         self,
@@ -69,16 +72,6 @@ class LLMService:
             LLMAnalysisResult with detected level, gaps, and recommendations
         """
 
-        if not _google_api_key():
-            self.logger.error("GOOGLE_API_KEY or GEMINI_API_KEY is not set")
-            return LLMAnalysisResult(
-                detected_level="medium",
-                learning_gaps=["API 키가 설정되지 않았습니다"],
-                recommended_strategies=["GOOGLE_API_KEY 또는 GEMINI_API_KEY를 .env에 설정하세요"],
-                confidence_score=0.0,
-                analysis_summary="Gemini API 키가 없어 분석을 수행할 수 없습니다"
-            )
-
         # Build context from retrieved standards
         standards_context = self._build_standards_context(retrieved_standards)
 
@@ -103,15 +96,13 @@ class LLMService:
             return self._parse_llm_response(result_data)
 
         except Exception as e:
-            self.logger.error(f"Error in LLM analysis: {e}")
-            # Return a fallback result
-            return LLMAnalysisResult(
-                detected_level="medium",
-                learning_gaps=["분석 중 오류가 발생했습니다"],
-                recommended_strategies=["기본적인 지원 전략을 적용하세요"],
-                confidence_score=0.5,
-                analysis_summary="LLM 분석에 실패하여 기본 추천을 제공합니다"
+            self.logger.error(
+                "LLM analysis failed (%s): %s. "
+                "Likely causes: invalid API key, quota/permission issue, network timeout, or Gemini API error.",
+                e.__class__.__name__,
+                str(e),
             )
+            raise
 
     def _get_system_prompt(self) -> str:
         """Get the system prompt for the LLM analysis."""
@@ -258,12 +249,8 @@ class LLMService:
 
         except Exception as e:
             self.logger.error(f"Error parsing LLM response: {e}")
-            return LLMAnalysisResult(
-                detected_level="medium",
-                learning_gaps=["응답 파싱 오류"],
-                recommended_strategies=["기본 전략 적용"],
-                confidence_score=0.3,
-                analysis_summary="LLM 응답 파싱에 실패했습니다"
+            raise ValueError(
+                f"Failed to parse Gemini JSON response: {e}"
             )
 
     def _extract_json_payload(self, raw_text: str) -> str:
@@ -296,14 +283,6 @@ class LLMService:
         - gap_skills: List[str]
         - development_suggestions: List[str]
         """
-        if not _google_api_key():
-            return {
-                "current_level": [],
-                "required_level": required_skills,
-                "gap_skills": required_skills[:5],
-                "development_suggestions": ["API 키 설정 후 문맥 기반 역량 격차 분석을 활성화하세요."],
-            }
-
         prompt = f"""
 학생의 현재 역량과 직업 요구 역량을 문맥적으로 비교해 격차를 분석하세요.
 
@@ -342,13 +321,13 @@ class LLMService:
                 "development_suggestions": result.get("development_suggestions", []),
             }
         except Exception as e:
-            self.logger.error(f"Error in career skill gap analysis: {e}")
-            return {
-                "current_level": [],
-                "required_level": required_skills,
-                "gap_skills": required_skills[:5],
-                "development_suggestions": ["현재 수준에 맞춰 직무 핵심 과업을 단계적으로 연습하세요."],
-            }
+            self.logger.error(
+                "Career skill-gap analysis failed (%s): %s. "
+                "Likely causes: invalid API key, quota/permission issue, network timeout, or Gemini API error.",
+                e.__class__.__name__,
+                str(e),
+            )
+            raise
 
     def generate_career_path(
         self,
@@ -366,15 +345,6 @@ class LLMService:
         - stages: List[Dict[str, str]]
         - estimated_timeline: str
         """
-        if not _google_api_key():
-            return {
-                "stages": [
-                    {"stage": "현재", "focus": current_skills, "description": "현재 학습 상태 점검"},
-                    {"stage": "다음 단계", "focus": "핵심 역량 강화", "description": "직무 핵심 역량을 우선 학습"},
-                ],
-                "estimated_timeline": "개별 평가 필요",
-            }
-
         prompt = f"""
 학생 맞춤 진로 로드맵을 생성하세요.
 
@@ -413,32 +383,39 @@ class LLMService:
                 "estimated_timeline": result.get("estimated_timeline", "개별 평가 필요"),
             }
         except Exception as e:
-            self.logger.error(f"Error generating career path: {e}")
-            return {
-                "stages": [
-                    {"stage": "현재", "focus": current_skills, "description": "현재 학습 상태 점검"},
-                    {"stage": "단계 1", "focus": "기초 직무 역량", "description": "직무 핵심 과업의 기초부터 훈련"},
-                    {"stage": "단계 2", "focus": "현장 적응", "description": "실습과 피드백 중심으로 직무 적응"},
-                ],
-                "estimated_timeline": "1-3년",
-            }
+            self.logger.error(
+                "Career path generation failed (%s): %s. "
+                "Likely causes: invalid API key, quota/permission issue, network timeout, or Gemini API error.",
+                e.__class__.__name__,
+                str(e),
+            )
+            raise
 
     def _call_json_model(self, prompt: str, system_instruction: str) -> Dict[str, Any]:
         """Call Gemini model and parse a JSON object response."""
         if not self.client:
             raise ValueError("Gemini client is not initialized. Check API key settings.")
 
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=self.temperature,
-                max_output_tokens=2000,
-                response_mime_type="application/json",
-            ),
-        )
-        result_text = response.text
-        if not result_text:
-            raise ValueError("Empty response from LLM")
-        return json.loads(self._extract_json_payload(result_text))
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=self.temperature,
+                    max_output_tokens=2000,
+                    response_mime_type="application/json",
+                ),
+            )
+            result_text = response.text
+            if not result_text:
+                raise ValueError("Empty response from Gemini model")
+            return json.loads(self._extract_json_payload(result_text))
+        except Exception as e:
+            self.logger.error(
+                "Gemini generate_content call failed (%s): %s. "
+                "Check API key validity, billing/quota, model name, and network connectivity.",
+                e.__class__.__name__,
+                str(e),
+            )
+            raise

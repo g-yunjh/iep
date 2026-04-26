@@ -107,10 +107,37 @@ class DataLoader:
     """Loads and processes special education curriculum and career data from JSON files."""
 
     def __init__(self, data_dir: Optional[str] = None):
-        project_root = Path(__file__).resolve().parents[2]
-        default_data_dir = project_root / "data"
-        self.data_dir = Path(data_dir) if data_dir else default_data_dir
+        # Resolve paths from repository root so startup directory does not matter.
+        self.project_root = Path(__file__).resolve().parents[3]
+        self.server_root = self.project_root / "server"
+        default_data_dir = self.server_root / "data"
+        self.data_dir = self._resolve_data_dir(data_dir, default_data_dir)
         self.logger = logging.getLogger(__name__)
+        self._validate_data_dir_exists()
+
+    def _resolve_data_dir(self, data_dir: Optional[str], default_data_dir: Path) -> Path:
+        """Resolve data directory as absolute path from project root."""
+        if not data_dir:
+            return default_data_dir.resolve()
+
+        user_path = Path(data_dir).expanduser()
+        if user_path.is_absolute():
+            return user_path.resolve()
+        return (self.project_root / user_path).resolve()
+
+    def _validate_data_dir_exists(self) -> None:
+        """Validate data directory and log all searched locations when missing."""
+        if self.data_dir.exists():
+            self.logger.info("Data directory resolved: %s", self.data_dir)
+            return
+
+        searched_paths = [
+            self.data_dir,
+            self.server_root / "data",
+            self.project_root / "data",
+        ]
+        searched_message = ", ".join(str(path.resolve()) for path in searched_paths)
+        self.logger.error("Data directory not found. Checked paths: %s", searched_message)
 
     def load_standards_from_json(self, filename: str) -> List[AchievementStandard]:
         """Load achievement standards from a JSON file."""
