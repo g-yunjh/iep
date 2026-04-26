@@ -8,7 +8,8 @@ import logging
 import os
 from typing import List, Dict, Any, Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from ..schemas.rag import LLMAnalysisResult, AchievementStandardReference
 
@@ -27,10 +28,11 @@ class LLMService:
     def __init__(self, model: Optional[str] = None, temperature: float = 0.3):
         self.model_name = model or os.getenv("GEMINI_CHAT_MODEL", "gemini-1.5-flash")
         self.temperature = temperature
+        self.logger = logging.getLogger(__name__)
+        self.client: Optional[genai.Client] = None
         api_key = _google_api_key()
         if api_key:
-            genai.configure(api_key=api_key)
-        self.logger = logging.getLogger(__name__)
+            self.client = genai.Client(api_key=api_key)
 
     def analyze_student_description(
         self,
@@ -83,23 +85,10 @@ class LLMService:
         )
 
         try:
-            model = genai.GenerativeModel(
-                model_name=self.model_name,
+            result_data = self._call_json_model(
+                prompt=prompt,
                 system_instruction=self._get_system_prompt(),
-                generation_config=genai.GenerationConfig(
-                    temperature=self.temperature,
-                    max_output_tokens=2000,
-                    response_mime_type="application/json",
-                ),
             )
-
-            response = model.generate_content(prompt)
-            result_text = response.text
-            if not result_text:
-                raise ValueError("Empty response from LLM")
-
-            # Parse JSON response
-            result_data = json.loads(self._extract_json_payload(result_text))
             return self._parse_llm_response(result_data)
 
         except Exception as e:
@@ -425,16 +414,19 @@ class LLMService:
 
     def _call_json_model(self, prompt: str, system_instruction: str) -> Dict[str, Any]:
         """Call Gemini model and parse a JSON object response."""
-        model = genai.GenerativeModel(
-            model_name=self.model_name,
-            system_instruction=system_instruction,
-            generation_config=genai.GenerationConfig(
+        if not self.client:
+            raise ValueError("Gemini client is not initialized. Check API key settings.")
+
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
                 temperature=self.temperature,
                 max_output_tokens=2000,
                 response_mime_type="application/json",
             ),
         )
-        response = model.generate_content(prompt)
         result_text = response.text
         if not result_text:
             raise ValueError("Empty response from LLM")

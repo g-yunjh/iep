@@ -7,7 +7,7 @@ langchain >= 0.3.0
 langchain-community
 langchain-core
 langchain-google-genai
-google-generativeai
+google-genai
 langgraph
 
 # Database & Storage
