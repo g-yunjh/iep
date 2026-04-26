@@ -22,6 +22,7 @@ from app.schemas.rag import (
 )
 from app.services.rag_orchestrator import RAGOrchestrator
 from app.services.rag_service import RAGService
+from app.services.llm_service import LLMService
 from app.db.database import get_db
 from app.db.models import Feedback, Student
 
@@ -128,8 +129,9 @@ async def get_career_recommendation(
     - 커리어넷 데이터 연계: 향후 어떤 직업적 역량으로 이어지는지 시각화
     """
     try:
-        _get_persona_student(db)
+        student = _get_persona_student(db)
         rag_service = RAGService()
+        llm_service = LLMService()
         
         # 1. 학생의 현재 역량/학습 내용을 기반으로 관련 직업 검색
         career_results = rag_service.search_career(
@@ -140,34 +142,60 @@ async def get_career_recommendation(
         if not career_results:
             raise HTTPException(status_code=404, detail="관련 직업을 찾을 수 없습니다.")
         
-        # 2. LLM을 통해 분석 (현재 역량과 직업 요구 역량 비교)
-        # TODO: LLM 서비스 연동하여 더精细한 분석 수행
-        
-        # 3. 결과 구성
+        # 2. 결과 구성
         recommended_careers = []
-        skill_gaps = []
-        
-        for idx, career in enumerate(career_results[:5]):
+        career_profiles = []
+
+        for career in career_results[:5]:
             metadata = career.get("metadata", {})
             content = career.get("content", "")
-            
-            # 역량 추출 (간단한 파싱)
+
             competencies = _extract_competencies(content)
+            profile = _extract_career_profile(content)
+            outlook = profile.get("outlook_scaffolding", "")
+            if not outlook:
+                outlook = metadata.get("outlook_scaffolding", "")
+
+            required_skills = competencies["required"]
+            # jobs_batch 구조(교육/자격/전망)를 required context에 반영
+            required_skills.extend(profile.get("certifications", []))
+            required_skills.extend(profile.get("education", []))
+            required_skills = [skill for skill in dict.fromkeys(required_skills) if skill]
             
             recommended_careers.append(RecommendedCareer(
                 job_id=metadata.get("job_id", ""),
                 job_title=metadata.get("job_title", ""),
                 category=metadata.get("category", ""),
                 match_score=career.get("score", 0),
-                required_skills=competencies["required"],
-                outlook=metadata.get("outlook_scaffolding", "")
+                required_skills=required_skills,
+                outlook=outlook
             ))
-        
-        # 4. 역량 격차 분석
-        skill_gaps = _analyze_skill_gaps(request.current_skills, recommended_careers)
-        
-        # 5. 커리어 경로 생성
-        career_paths = _generate_career_paths(request, recommended_careers)
+
+            career_profiles.append({
+                "job_title": metadata.get("job_title", ""),
+                "required_skills": required_skills,
+                "outlook_scaffolding": outlook,
+                "education": profile.get("education", []),
+                "certifications": profile.get("certifications", []),
+            })
+
+        # 3. LLM 기반 역량 격차 분석
+        skill_gaps = _analyze_skill_gaps(
+            current_skills=request.current_skills,
+            recommended_careers=recommended_careers,
+            llm_service=llm_service,
+            grade=request.grade,
+            disability_type=student.disability_type,
+        )
+
+        # 4. LLM 기반 커리어 경로 생성
+        career_paths = _generate_career_paths(
+            request=request,
+            recommended_careers=recommended_careers,
+            llm_service=llm_service,
+            disability_type=student.disability_type,
+            career_profiles=career_profiles,
+        )
         
         return CareerRecommendationResponse(
             current_skills=request.current_skills,
@@ -360,81 +388,115 @@ def _extract_competencies(content: str) -> Dict[str, List[str]]:
     }
 
 
-def _analyze_skill_gaps(current_skills: str, recommended_careers: List[RecommendedCareer]) -> List[SkillGap]:
-    """현재 역량과 목표 직업의 요구 역량 간 격차를 분석합니다."""
+def _extract_career_profile(content: str) -> Dict[str, Any]:
+    """Extract structured career profile from indexed career document content."""
+    lines = [line.strip() for line in content.split("\n") if line.strip()]
+    education: List[str] = []
+    certifications: List[str] = []
+    outlook_scaffolding = ""
+
+    for line in lines:
+        if line.startswith("자격증:"):
+            cert_text = line.replace("자격증:", "").strip()
+            certifications = [c.strip() for c in cert_text.split(",") if c.strip()]
+        elif line.startswith("진로 전망:"):
+            outlook_scaffolding = line.replace("진로 전망:", "").strip()
+
+    # 일부 문서는 본문에 교육 정보가 없어 빈 리스트일 수 있음
+    return {
+        "education": education,
+        "certifications": certifications,
+        "outlook_scaffolding": outlook_scaffolding,
+    }
+
+
+def _analyze_skill_gaps(
+    current_skills: str,
+    recommended_careers: List[RecommendedCareer],
+    llm_service: Optional[LLMService] = None,
+    grade: Optional[str] = None,
+    disability_type: Optional[str] = None,
+) -> List[SkillGap]:
+    """LLM을 사용해 현재 역량과 목표 직업 요구 역량 간의 문맥적 격차를 분석합니다."""
     skill_gaps = []
-    
-    current_skills_set = set(current_skills.lower().split())
-    
+
+    service = llm_service or LLMService()
     for career in recommended_careers[:3]:
-        required_skills = set(skill.lower() for skill in career.required_skills)
-        missing_skills = required_skills - current_skills_set
-        
-        if missing_skills:
+        gap_result = service.analyze_career_skill_gap(
+            current_skills=current_skills,
+            job_title=career.job_title,
+            required_skills=career.required_skills,
+            outlook_scaffolding=career.outlook,
+            grade=grade,
+            disability_type=disability_type,
+        )
+
+        gap_skills = gap_result.get("gap_skills", [])
+        if gap_skills:
             skill_gaps.append(SkillGap(
                 job_title=career.job_title,
-                current_level=list(current_skills_set & required_skills),
-                required_level=career.required_skills,
-                gap_skills=list(missing_skills),
-                development_suggestions=_generate_development_suggestions(list(missing_skills))
+                current_level=gap_result.get("current_level", []),
+                required_level=gap_result.get("required_level", career.required_skills),
+                gap_skills=gap_skills,
+                development_suggestions=gap_result.get("development_suggestions", []),
             ))
-    
+
     return skill_gaps
-
-
-def _generate_development_suggestions(gap_skills: List[str]) -> List[str]:
-    """결격난 역량을 개발하기 위한 제안을 생성합니다."""
-    suggestions = []
-    
-    for skill in gap_skills:
-        if "도면" in skill or "설계" in skill:
-            suggestions.append(f"- {skill}: 기초 설계 도면 읽기 연습")
-        elif "손재주" in skill or "실습" in skill:
-            suggestions.append(f"- {skill}: 관련 분야 실습 경험 쌓기")
-        elif "コミュニケーション" in skill or "소통" in skill:
-            suggestions.append(f"- {skill}: 팀 프로젝트 참여하여 소통 역량 강화")
-        else:
-            suggestions.append(f"- {skill}: 관련 교과 학습 및 자격증 준비")
-    
-    return suggestions
 
 
 def _generate_career_paths(
     request: CareerRecommendationRequest,
-    recommended_careers: List[RecommendedCareer]
+    recommended_careers: List[RecommendedCareer],
+    llm_service: Optional[LLMService] = None,
+    disability_type: Optional[str] = None,
+    career_profiles: Optional[List[Dict[str, Any]]] = None,
 ) -> List[CareerPath]:
-    """학생의 현재 학습에서부터 목표 직업까지의 경로를 생성합니다."""
+    """LLM을 사용해 outlook 기반 학생 맞춤 커리어 경로를 생성합니다."""
     paths = []
-    
+
+    profile_map = {p.get("job_title", ""): p for p in (career_profiles or [])}
+    service = llm_service or LLMService()
+
     for career in recommended_careers[:3]:
-        # 현재 학습 단계에서 해당 직업까지의 경로
-        path = CareerPath(
-            current_learning=request.current_skills,
-            target_career=career.job_title,
-            stages=[
+        profile = profile_map.get(career.job_title, {})
+        roadmap = service.generate_career_path(
+            current_skills=request.current_skills,
+            job_title=career.job_title,
+            required_skills=career.required_skills,
+            outlook_scaffolding=career.outlook or profile.get("outlook_scaffolding", ""),
+            certifications=profile.get("certifications", []),
+            education_paths=profile.get("education", []),
+            disability_type=disability_type,
+        )
+
+        stages = roadmap.get("stages", [])
+        if not isinstance(stages, list):
+            stages = []
+
+        normalized_stages: List[Dict[str, str]] = []
+        for idx, stage in enumerate(stages[:5], start=1):
+            if isinstance(stage, dict):
+                normalized_stages.append({
+                    "stage": str(stage.get("stage", f"단계 {idx}")),
+                    "focus": str(stage.get("focus", "")),
+                    "description": str(stage.get("description", "")),
+                })
+
+        if not normalized_stages:
+            normalized_stages = [
                 {
                     "stage": "현재",
                     "focus": request.current_skills,
-                    "description": "현재 학습 중인 내용"
-                },
-                {
-                    "stage": "단기",
-                    "focus": "기초 역량 확보",
-                    "description": f"{career.job_title}에 필요한 기본 역량 학습"
-                },
-                {
-                    "stage": "중기",
-                    "focus": "전문 역량 개발",
-                    "description": "관련 자격증 취득 및 실습 경험"
-                },
-                {
-                    "stage": "장기",
-                    "focus": "취업 준비",
-                    "description": f"{career.job_title} 관련 직종 취직"
+                    "description": "현재 역량을 기준으로 직무 적합도를 점검합니다."
                 }
-            ],
-            estimated_timeline="3-5년"
+            ]
+
+        path = CareerPath(
+            current_learning=request.current_skills,
+            target_career=career.job_title,
+            stages=normalized_stages,
+            estimated_timeline=str(roadmap.get("estimated_timeline", "개별 평가 필요"))
         )
         paths.append(path)
-    
+
     return paths

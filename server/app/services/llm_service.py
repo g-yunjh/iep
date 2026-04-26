@@ -278,3 +278,164 @@ class LLMService:
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
         return text
+
+    def analyze_career_skill_gap(
+        self,
+        current_skills: str,
+        job_title: str,
+        required_skills: List[str],
+        outlook_scaffolding: str,
+        grade: Optional[str] = None,
+        disability_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Analyze semantic skill gaps between student current skills and career requirements.
+        Returns a JSON-compatible dict with keys:
+        - current_level: List[str]
+        - required_level: List[str]
+        - gap_skills: List[str]
+        - development_suggestions: List[str]
+        """
+        if not _google_api_key():
+            return {
+                "current_level": [],
+                "required_level": required_skills,
+                "gap_skills": required_skills[:5],
+                "development_suggestions": ["API 키 설정 후 문맥 기반 역량 격차 분석을 활성화하세요."],
+            }
+
+        prompt = f"""
+학생의 현재 역량과 직업 요구 역량을 문맥적으로 비교해 격차를 분석하세요.
+
+학생 정보:
+- 학년: {grade or "정보 없음"}
+- 장애 유형: {disability_type or "정보 없음"}
+- 현재 역량/학습 상태: {current_skills}
+
+목표 직업:
+- 직업명: {job_title}
+- 요구 역량: {required_skills}
+- 진로 전망 및 환경: {outlook_scaffolding or "정보 없음"}
+
+요청:
+1) 학생이 이미 보유한 역량(current_level)을 요구 역량 맥락에서 추출
+2) 직업 적응을 위해 부족한 핵심 역량(gap_skills) 도출
+3) 교육 가능한 형태의 구체적 제안(development_suggestions) 작성
+
+반드시 유효한 JSON 객체만 출력:
+{{
+  "current_level": ["..."],
+  "required_level": ["..."],
+  "gap_skills": ["..."],
+  "development_suggestions": ["..."]
+}}
+"""
+        try:
+            result = self._call_json_model(
+                prompt=prompt.strip(),
+                system_instruction="당신은 특수교육 진로지도 전문가입니다. 문맥 기반 역량 격차를 분석하고, 학생 맞춤 발달 제안을 제공합니다.",
+            )
+            return {
+                "current_level": result.get("current_level", []),
+                "required_level": result.get("required_level", required_skills),
+                "gap_skills": result.get("gap_skills", []),
+                "development_suggestions": result.get("development_suggestions", []),
+            }
+        except Exception as e:
+            self.logger.error(f"Error in career skill gap analysis: {e}")
+            return {
+                "current_level": [],
+                "required_level": required_skills,
+                "gap_skills": required_skills[:5],
+                "development_suggestions": ["현재 수준에 맞춰 직무 핵심 과업을 단계적으로 연습하세요."],
+            }
+
+    def generate_career_path(
+        self,
+        current_skills: str,
+        job_title: str,
+        required_skills: List[str],
+        outlook_scaffolding: str,
+        certifications: Optional[List[str]] = None,
+        education_paths: Optional[List[str]] = None,
+        disability_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate customized career path grounded in outlook_scaffolding.
+        Returns:
+        - stages: List[Dict[str, str]]
+        - estimated_timeline: str
+        """
+        if not _google_api_key():
+            return {
+                "stages": [
+                    {"stage": "현재", "focus": current_skills, "description": "현재 학습 상태 점검"},
+                    {"stage": "다음 단계", "focus": "핵심 역량 강화", "description": "직무 핵심 역량을 우선 학습"},
+                ],
+                "estimated_timeline": "개별 평가 필요",
+            }
+
+        prompt = f"""
+학생 맞춤 진로 로드맵을 생성하세요.
+
+학생 현재 역량:
+{current_skills}
+
+목표 직업:
+- 직업명: {job_title}
+- 요구 역량: {required_skills}
+- 관련 자격: {certifications or []}
+- 관련 교육 경로: {education_paths or []}
+- 진로 전망/근무 환경 정보: {outlook_scaffolding or "정보 없음"}
+- 장애 유형: {disability_type or "정보 없음"}
+
+요청:
+1) outlook_scaffolding을 반영해 실제 진입 가능성을 고려한 단계 설계
+2) 학생 수준에 맞춘 3~5개 단계(stages) 생성
+3) 각 단계는 stage, focus, description 키를 포함
+4) 예상 소요 기간(estimated_timeline) 제시
+
+반드시 유효한 JSON 객체만 출력:
+{{
+  "stages": [
+    {{"stage": "...", "focus": "...", "description": "..."}}
+  ],
+  "estimated_timeline": "..."
+}}
+"""
+        try:
+            result = self._call_json_model(
+                prompt=prompt.strip(),
+                system_instruction="당신은 특수교육 기반 진로설계 전문가입니다. 학생 맞춤형, 실행 가능한 단계 로드맵을 작성하세요.",
+            )
+            return {
+                "stages": result.get("stages", []),
+                "estimated_timeline": result.get("estimated_timeline", "개별 평가 필요"),
+            }
+        except Exception as e:
+            self.logger.error(f"Error generating career path: {e}")
+            return {
+                "stages": [
+                    {"stage": "현재", "focus": current_skills, "description": "현재 학습 상태 점검"},
+                    {"stage": "단계 1", "focus": "기초 직무 역량", "description": "직무 핵심 과업의 기초부터 훈련"},
+                    {"stage": "단계 2", "focus": "현장 적응", "description": "실습과 피드백 중심으로 직무 적응"},
+                ],
+                "estimated_timeline": "1-3년",
+            }
+
+    def _call_json_model(self, prompt: str, system_instruction: str) -> Dict[str, Any]:
+        """Call Gemini model and parse a JSON object response."""
+        model = genai.GenerativeModel(
+            model_name=self.model_name,
+            system_instruction=system_instruction,
+            generation_config=genai.GenerationConfig(
+                temperature=self.temperature,
+                max_output_tokens=2000,
+                response_mime_type="application/json",
+            ),
+        )
+        response = model.generate_content(prompt)
+        result_text = response.text
+        if not result_text:
+            raise ValueError("Empty response from LLM")
+        return json.loads(self._extract_json_payload(result_text))
