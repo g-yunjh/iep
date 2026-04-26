@@ -99,7 +99,7 @@ class LLMService:
                 raise ValueError("Empty response from LLM")
 
             # Parse JSON response
-            result_data = json.loads(result_text)
+            result_data = json.loads(self._extract_json_payload(result_text))
             return self._parse_llm_response(result_data)
 
         except Exception as e:
@@ -120,12 +120,22 @@ class LLMService:
 다음 지침을 따라 분석을 수행하세요:
 
 1. **장애 유형 이해**: 지적장애, 학습장애, 자폐성장애 등의 특성을 고려하여 분석
-2. **능력 수준 평가**: 제공된 성취기준을 기준으로 아동의 현재 수준을 high/medium/low로 분류
-3. **학습 격차 식별**: 아동이 보이는 어려움과 개선이 필요한 영역을 구체적으로 파악
+2. **능력 수준 평가**: 제공된 성취기준 및 diagnostic_criteria와 교사 설명의 일치도를 비교하여 high/medium/low로 분류
+3. **학습 격차 식별**: 각 diagnostic_criteria와 비교해 학생이 못하고 있는 지점을 구체 문장으로 추출
 4. **스캐폴딩 전략 추천**: 아동의 수준에 맞는 구체적이고 실천 가능한 전략 제안
 5. **신뢰도 평가**: 분석의 확실성을 0.0-1.0 사이의 점수로 표시
 
-응답은 반드시 다음 JSON 형식으로 출력하세요:
+수준 판별 규칙:
+- high: 기준의 대부분(약 70% 이상)에 부합하고 부분적 지원만 필요
+- medium: 일부 기준(약 40~70%)에 부합하며 핵심 기능에 간헐적 지원 필요
+- low: 기준 충족이 제한적(약 40% 미만)이고 핵심 기능에서 지속적 지원 필요
+
+중요:
+- 출력은 반드시 유효한 JSON 객체 1개만 출력
+- 마크다운(```), 주석, 설명 문장, 접두/접미 텍스트를 절대 포함하지 말 것
+- 아래 스키마는 RAGAnalysisResult의 llm_analysis 필드로 바로 들어갈 값이므로 키 이름을 정확히 지킬 것
+
+응답 JSON 스키마:
 {
   "detected_level": "high|medium|low",
   "learning_gaps": ["격차1", "격차2", ...],
@@ -163,12 +173,12 @@ class LLMService:
 {feedback_context}
 
 **분석 요청:**
-1. 학생의 현재 능력 수준을 high/medium/low로 평가하세요
-2. 주요 학습 격차를 식별하세요
+1. retrieved_standards의 각 diagnostic_criteria를 기준으로 teacher_description과 비교해 학생의 현재 수준(high/medium/low)을 판별하세요
+2. learning_gaps는 반드시 diagnostic_criteria와의 비교 근거가 드러나도록 구체적으로 작성하세요
 3. 적절한 스캐폴딩 전략을 추천하세요
 4. 분석의 신뢰도를 평가하세요
 
-응답은 JSON 형식으로 제공해주세요.
+응답은 반드시 유효한 JSON 객체만 출력하고, 마크다운/설명문을 포함하지 마세요.
 """
         return prompt.strip()
 
@@ -179,9 +189,16 @@ class LLMService:
 
         context_parts = []
         for i, standard in enumerate(standards, 1):
+            criteria_text = (
+                "\n".join(f"     - {criterion}" for criterion in standard.diagnostic_criteria)
+                if standard.diagnostic_criteria
+                else "     - (진단 준거 정보 없음)"
+            )
             context_parts.append(f"""
 {i}. {standard.grade} {standard.subject} ({standard.disability_type})
    성취기준: {standard.standard_text}
+   diagnostic_criteria:
+{criteria_text}
    관련도: {standard.relevance_score:.2f}
 """)
 
@@ -209,6 +226,9 @@ class LLMService:
     def _parse_llm_response(self, response_data: Dict[str, Any]) -> LLMAnalysisResult:
         """Parse the LLM JSON response into a structured result."""
         try:
+            if "llm_analysis" in response_data and isinstance(response_data["llm_analysis"], dict):
+                response_data = response_data["llm_analysis"]
+
             detected_level = response_data.get('detected_level', 'medium')
             learning_gaps = response_data.get('learning_gaps', [])
             recommended_strategies = response_data.get('recommended_strategies', [])
@@ -245,3 +265,16 @@ class LLMService:
                 confidence_score=0.3,
                 analysis_summary="LLM 응답 파싱에 실패했습니다"
             )
+
+    def _extract_json_payload(self, raw_text: str) -> str:
+        """Extract JSON payload from model output, tolerating fenced blocks."""
+        text = raw_text.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            # Remove opening/closing fences if present.
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        return text

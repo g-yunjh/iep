@@ -41,6 +41,10 @@ class AchievementStandardReference(BaseModel):
     subject: str = Field(..., description="Subject")
     disability_type: str = Field(..., description="Disability type")
     standard_text: str = Field(..., description="The achievement standard text")
+    diagnostic_criteria: List[str] = Field(
+        default_factory=list,
+        description="Diagnostic criteria extracted from curriculum data"
+    )
     relevance_score: float = Field(..., description="How relevant this standard was to the analysis")
 
 

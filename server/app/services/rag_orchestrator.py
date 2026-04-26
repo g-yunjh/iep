@@ -147,6 +147,7 @@ class RAGOrchestrator:
                 subject=metadata.get("subject", ""),
                 disability_type=metadata.get("disability_type", ""),
                 standard_text=self._extract_standard_text(result.get("content", "")),
+                diagnostic_criteria=self._extract_diagnostic_criteria(result.get("content", "")),
                 relevance_score=result.get("score", 0.0)
             )
             standards.append(standard)
@@ -160,6 +161,30 @@ class RAGOrchestrator:
             if line.startswith('성취기준:'):
                 return line.replace('성취기준:', '').strip()
         return content[:200] + "..."  # Fallback
+
+    def _extract_diagnostic_criteria(self, content: str) -> List[str]:
+        """Extract diagnostic criteria listed under the '활동:' section."""
+        lines = content.split('\n')
+        criteria: List[str] = []
+        in_activity_section = False
+
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith("활동:"):
+                in_activity_section = True
+                continue
+
+            # Stop at the next major section-like line.
+            if in_activity_section and (line.endswith(":") and not line.startswith("-")):
+                break
+
+            if in_activity_section and line.startswith("-"):
+                criteria.append(line[1:].strip())
+
+        return criteria
 
     def _get_past_feedback(
         self,
@@ -342,6 +367,7 @@ class RAGOrchestrator:
                 subject=request.subject,
                 disability_type="",
                 standard_text="기본적인 학습 지원이 필요한 수준",
+                diagnostic_criteria=[],
                 relevance_score=0.5
             ),
             additional_notes="전문가와 상담하여 자세한 평가를 받으시길 권장합니다."
