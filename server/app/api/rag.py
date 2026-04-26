@@ -373,7 +373,12 @@ async def get_vector_store_status(data_type: Optional[str] = None):
                 for info in all_info.values()
             )
             return VectorStoreStatus(
-                status="initialized" if all_info.get("curriculum", {}).get("status") == "initialized" else "not_initialized",
+                status=(
+                    "initialized"
+                    if all_info.get("curriculum", {}).get("status") == "initialized"
+                    and all_info.get("career", {}).get("status") == "initialized"
+                    else "not_initialized"
+                ),
                 document_count=total_docs,
                 collection_name="all",
                 last_updated=None

@@ -106,8 +106,10 @@ class CareerData:
 class DataLoader:
     """Loads and processes special education curriculum and career data from JSON files."""
 
-    def __init__(self, data_dir: str = "server/data"):
-        self.data_dir = Path(data_dir)
+    def __init__(self, data_dir: Optional[str] = None):
+        project_root = Path(__file__).resolve().parents[2]
+        default_data_dir = project_root / "data"
+        self.data_dir = Path(data_dir) if data_dir else default_data_dir
         self.logger = logging.getLogger(__name__)
 
     def load_standards_from_json(self, filename: str) -> List[AchievementStandard]:

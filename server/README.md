@@ -25,7 +25,7 @@ pip install -r requirements.txt
     * `DATABASE_URL`: PostgreSQL 및 벡터 지식 베이스 접속 정보
 * **선택 항목**:
     * `GEMINI_CHAT_MODEL`: 대화·분석용 모델 (기본값 `gemini-1.5-flash`)
-    * `GEMINI_EMBEDDING_MODEL`: 임베딩 모델 (기본값 `models/embedding-001`)
+    * `GEMINI_EMBEDDING_MODEL`: 임베딩 모델 (기본값 `models/text-embedding-004`)
 * **벡터 스토어 재구축**: 이전에 OpenAI 임베딩으로 만든 Chroma 데이터는 차원이 달라 호환되지 않습니다. Gemini 전환 후에는 RAG 초기화 API에서 `force_recreate=true`로 스토어를 다시 만들어야 합니다.
 
 ### 4. 로컬 서버 실행 및 검증

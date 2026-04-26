@@ -5,10 +5,13 @@ Supports multiple collections (curriculum, career) for different RAG use cases.
 
 import logging
 import os
+import shutil
+import time
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
@@ -41,17 +44,20 @@ class RAGService:
         default_persist_dir = project_root / "vector_store"
         self.persist_directory = Path(persist_directory) if persist_directory else default_persist_dir
         self.collection_name = collection_name
-        embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "models/embedding-001")
+        embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004")
+        self.embedding_model = embedding_model
+        self.local_embedding_model = os.getenv(
+            "LOCAL_EMBEDDING_MODEL",
+            "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        )
         api_key = _google_api_key()
         if not api_key:
             raise ValueError(
                 "API key required for Gemini embeddings. "
                 "Set GOOGLE_API_KEY or GEMINI_API_KEY in environment (or .env)."
             )
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model=embedding_model,
-            google_api_key=api_key,
-        )
+        self.api_key = api_key
+        self.embeddings = self._create_embeddings(embedding_model)
         self.vectorstore: Optional[Chroma] = None
         self.data_loader = DataLoader()
 
@@ -61,6 +67,59 @@ class RAGService:
     def _get_collection_dir(self, collection_name: str) -> Path:
         """Get the directory for a specific collection."""
         return self.persist_directory / collection_name
+
+    def _create_embeddings(self, model_name: str) -> GoogleGenerativeAIEmbeddings:
+        """Create embedding client for a given model name."""
+        return GoogleGenerativeAIEmbeddings(
+            model=model_name,
+            google_api_key=self.api_key,
+        )
+
+    def _resolve_working_embedding_model(self) -> str:
+        """
+        Resolve a working embedding model by trying configured model first,
+        then well-known fallbacks.
+        """
+        candidates = [self.embedding_model, "text-embedding-004", "models/embedding-001"]
+        seen = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            try:
+                trial_embeddings = self._create_embeddings(candidate)
+                # Smoke test one small embedding call
+                trial_embeddings.embed_query("ping")
+                self.logger.info("Using Gemini embedding model: %s", candidate)
+                self.embedding_model = candidate
+                self.embeddings = trial_embeddings
+                return candidate
+            except Exception as e:
+                self.logger.warning("Embedding model '%s' unavailable: %s", candidate, e)
+
+        # Fallback: local embedding model for environments where Gemini embedding API is unavailable.
+        self.logger.warning(
+            "No supported Gemini embedding model found. Falling back to local embedding model: %s",
+            self.local_embedding_model,
+        )
+        self.embeddings = HuggingFaceEmbeddings(model_name=self.local_embedding_model)
+        return f"local:{self.local_embedding_model}"
+
+    def _safe_remove_dir(self, target_dir: Path, retries: int = 5, delay_sec: float = 0.4) -> None:
+        """Remove directory with retries to tolerate Windows sqlite file locks."""
+        # Release references that may keep sqlite file handles open.
+        self.vectorstore = None
+        last_error = None
+        for _ in range(retries):
+            try:
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                return
+            except Exception as e:
+                last_error = e
+                time.sleep(delay_sec)
+        if last_error:
+            raise last_error
 
     def initialize_vector_store(
         self,
@@ -84,23 +143,32 @@ class RAGService:
             self.collection_name = COLLECTION_CURRICULUM
 
         collection_dir = self._get_collection_dir(self.collection_name)
+        had_existing_store = collection_dir.exists()
         collection_dir.mkdir(parents=True, exist_ok=True)
 
         try:
+            # Validate embedding model before any expensive operation.
+            self._resolve_working_embedding_model()
+
             # Check if vector store already exists
-            if collection_dir.exists() and not force_recreate:
+            if had_existing_store and not force_recreate:
                 self.logger.info(f"Vector store for {data_type} already exists, loading...")
                 self.vectorstore = Chroma(
                     persist_directory=str(collection_dir),
                     embedding_function=self.embeddings,
                     collection_name=self.collection_name
                 )
-                return True
+                existing_count = self.vectorstore._collection.count()
+                if existing_count > 0:
+                    return True
+                self.logger.info(
+                    "Existing vector store for %s is empty. Rebuilding embeddings.",
+                    data_type,
+                )
 
             # Delete existing store if force recreate
             if force_recreate and collection_dir.exists():
-                import shutil
-                shutil.rmtree(collection_dir)
+                self._safe_remove_dir(collection_dir)
                 collection_dir.mkdir(parents=True, exist_ok=True)
 
             # Load documents from data files
@@ -300,8 +368,9 @@ class RAGService:
                 collection_name=self.collection_name
             )
             count = self.vectorstore._collection.count()
+            status = "initialized" if count > 0 else "empty"
             return {
-                "status": "initialized",
+                "status": status,
                 "document_count": count,
                 "collection_name": self.collection_name,
                 "data_type": data_type,
@@ -338,14 +407,12 @@ class RAGService:
                 
                 collection_dir = self._get_collection_dir(self.collection_name)
                 if collection_dir.exists():
-                    import shutil
-                    shutil.rmtree(collection_dir)
+                    self._safe_remove_dir(collection_dir)
                     self.logger.info(f"Vector store for {data_type} deleted successfully")
             else:
                 # Delete all
                 if self.persist_directory.exists():
-                    import shutil
-                    shutil.rmtree(self.persist_directory)
+                    self._safe_remove_dir(self.persist_directory)
                     self.persist_directory.mkdir(parents=True, exist_ok=True)
                     self.logger.info("All vector stores deleted successfully")
             
