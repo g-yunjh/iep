@@ -5,7 +5,6 @@ Supports multiple collections (curriculum, career) for different RAG use cases.
 
 import logging
 import os
-import re
 import shutil
 import time
 from typing import List, Dict, Any, Optional
@@ -13,15 +12,11 @@ from pathlib import Path
 
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 from .data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
-
-
-def _google_api_key() -> Optional[str]:
-    return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
 
 # Collection names
@@ -49,15 +44,8 @@ class RAGService:
             else default_persist_dir.resolve()
         )
         self.collection_name = collection_name
-        embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "models/embedding-001")
+        embedding_model = os.getenv("LOCAL_EMBEDDING_MODEL", "jhgan/ko-sroberta-multitask")
         self.embedding_model = embedding_model
-        api_key = _google_api_key()
-        if not api_key:
-            raise ValueError(
-                "API key required for Gemini embeddings. "
-                "Set GOOGLE_API_KEY or GEMINI_API_KEY in environment (or .env)."
-            )
-        self.api_key = api_key
         self.embeddings = self._create_embeddings(embedding_model)
         self.vectorstore: Optional[Chroma] = None
         self.data_loader = DataLoader(data_dir=str(self.server_root / "data"))
@@ -70,12 +58,30 @@ class RAGService:
         """Get the directory for a specific collection."""
         return self.persist_directory / collection_name
 
-    def _create_embeddings(self, model_name: str) -> GoogleGenerativeAIEmbeddings:
-        """Create embedding client for a given model name."""
-        return GoogleGenerativeAIEmbeddings(
-            model=model_name,
-            google_api_key=self.api_key,
-        )
+    def _create_embeddings(self, model_name: str) -> HuggingFaceEmbeddings:
+        """Create local embedding client for a given model name."""
+        try:
+            return HuggingFaceEmbeddings(
+                model_name=model_name,
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True},
+            )
+        except Exception as e:
+            fallback_model = "jhgan/ko-sroberta-multitask"
+            if model_name == fallback_model:
+                raise
+            self.logger.warning(
+                "Failed to load local embedding model '%s' (%s). Falling back to '%s'.",
+                model_name,
+                str(e),
+                fallback_model,
+            )
+            self.embedding_model = fallback_model
+            return HuggingFaceEmbeddings(
+                model_name=fallback_model,
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True},
+            )
 
     def _safe_remove_dir(self, target_dir: Path, retries: int = 5, delay_sec: float = 0.4) -> None:
         """Remove directory with retries to tolerate Windows sqlite file locks."""
@@ -93,44 +99,40 @@ class RAGService:
         if last_error:
             raise last_error
 
-    def _is_quota_exhausted_error(self, error: Exception) -> bool:
-        """Return True when Gemini request failed due to quota/rate limits."""
-        error_text = str(error).upper()
-        return "RESOURCE_EXHAUSTED" in error_text or "QUOTA" in error_text or "429" in error_text
-
-    def _extract_retry_delay_seconds(self, error: Exception, default_delay: float = 15.0) -> float:
+    def _load_documents_for_data_type(self, data_type: str) -> List[Dict[str, Any]]:
         """
-        Extract suggested retry delay from Gemini error text.
-        Example: 'Please retry in 13.416026615s.'
-        """
-        error_text = str(error)
-        match = re.search(r"retry in\s+([0-9]+(?:\.[0-9]+)?)s", error_text, flags=re.IGNORECASE)
-        if not match:
-            return default_delay
-        try:
-            return max(float(match.group(1)), 1.0)
-        except ValueError:
-            return default_delay
+        Load documents for embedding with curriculum directory priority.
 
-    def _run_with_quota_retry(self, operation_name: str, action, max_attempts: int = 3):
-        """Run a Gemini-dependent action with quota-aware retries."""
-        for attempt in range(1, max_attempts + 1):
-            try:
-                return action()
-            except Exception as e:
-                if not self._is_quota_exhausted_error(e) or attempt == max_attempts:
-                    raise
-                delay_sec = self._extract_retry_delay_seconds(e)
-                self.logger.warning(
-                    "Gemini quota/rate limit during %s (attempt %d/%d): %s. "
-                    "Retrying in %.1f seconds.",
-                    operation_name,
-                    attempt,
-                    max_attempts,
-                    str(e),
-                    delay_sec,
+        For curriculum, prefer `data/curriculum/**.json` files and only fallback
+        to the legacy combined loader when the directory-based source is empty.
+        """
+        documents: List[Dict[str, Any]] = []
+
+        if data_type == "curriculum":
+            curriculum_standards = self.data_loader.load_curriculum_from_directory()
+            for standard in curriculum_standards:
+                documents.append(standard.to_document())
+
+            if documents:
+                self.logger.info(
+                    "Loaded %d curriculum documents from curriculum directory.",
+                    len(documents),
                 )
-                time.sleep(delay_sec)
+                return documents
+
+            self.logger.warning(
+                "No curriculum files found under curriculum directory. "
+                "Falling back to legacy curriculum loader."
+            )
+            return self.data_loader.get_documents_for_embedding("curriculum")
+
+        if data_type == "career":
+            career_data = self.data_loader.load_all_careers()
+            for career in career_data:
+                documents.append(career.to_document())
+            return documents
+
+        return self.data_loader.get_documents_for_embedding(data_type)
 
     def initialize_vector_store(
         self,
@@ -158,16 +160,16 @@ class RAGService:
         collection_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Validate Gemini embedding call early so failures are explicit.
+            # Validate local embedding model call early so failures are explicit.
             try:
                 self.embeddings.embed_query("ping")
-                self.logger.info("Using Gemini embedding model: %s", self.embedding_model)
+                self.logger.info("Using local embedding model: %s", self.embedding_model)
             except Exception as e:
                 error_text = str(e)
                 error_type = e.__class__.__name__
                 self.logger.error(
-                    "Gemini embedding validation failed (%s): %s. "
-                    "Check API key validity, Gemini API access, and network connectivity.",
+                    "Local embedding model validation failed (%s): %s. "
+                    "Check model download/cache and runtime environment.",
                     error_type,
                     error_text,
                 )
@@ -195,7 +197,7 @@ class RAGService:
                 collection_dir.mkdir(parents=True, exist_ok=True)
 
             # Load documents from data files
-            documents_data = self.data_loader.get_documents_for_embedding(data_type)
+            documents_data = self._load_documents_for_data_type(data_type)
 
             if not documents_data:
                 self.logger.warning(f"No documents found to embed for {data_type}")
@@ -212,63 +214,13 @@ class RAGService:
 
             self.logger.info(f"Creating vector store with {len(documents)} documents for {data_type}")
 
-            # Create vector store (auto-persisted by Chroma 0.4+)
-            # Career data can be large, so ingest in batches to stay within free-tier quotas.
-            if data_type == "career":
-                batch_size = int(os.getenv("RAG_CAREER_BATCH_SIZE", "10"))
-                batch_size = max(1, batch_size)
-                inter_batch_delay_sec = float(os.getenv("RAG_CAREER_BATCH_DELAY_SEC", "8"))
-                inter_batch_delay_sec = max(0.0, inter_batch_delay_sec)
-                first_batch = documents[:batch_size]
-                remaining_docs = documents[batch_size:]
-                total_batches = 1 + ((len(remaining_docs) + batch_size - 1) // batch_size)
-
-                self.logger.info(
-                    "Career ingestion in %d batches (batch_size=%d, batch_delay=%.1fs, total_docs=%d)",
-                    total_batches,
-                    batch_size,
-                    inter_batch_delay_sec,
-                    len(documents),
-                )
-
-                self.vectorstore = self._run_with_quota_retry(
-                    operation_name=f"{data_type} vector store initial batch creation",
-                    action=lambda: Chroma.from_documents(
-                        documents=first_batch,
-                        embedding=self.embeddings,
-                        persist_directory=str(collection_dir),
-                        collection_name=self.collection_name,
-                    ),
-                )
-
-                for batch_index, start in enumerate(range(0, len(remaining_docs), batch_size), start=2):
-                    batch_docs = remaining_docs[start:start + batch_size]
-                    self.logger.info(
-                        "Adding career batch %d/%d (%d docs)",
-                        batch_index,
-                        total_batches,
-                        len(batch_docs),
-                    )
-                    self._run_with_quota_retry(
-                        operation_name=f"{data_type} vector store batch add {batch_index}/{total_batches}",
-                        action=lambda docs=batch_docs: self.vectorstore.add_documents(docs),
-                    )
-                    if inter_batch_delay_sec > 0 and batch_index < total_batches:
-                        self.logger.info(
-                            "Sleeping %.1f seconds before next career batch to avoid quota spikes.",
-                            inter_batch_delay_sec,
-                        )
-                        time.sleep(inter_batch_delay_sec)
-            else:
-                self.vectorstore = self._run_with_quota_retry(
-                    operation_name=f"{data_type} vector store creation",
-                    action=lambda: Chroma.from_documents(
-                        documents=documents,
-                        embedding=self.embeddings,
-                        persist_directory=str(collection_dir),
-                        collection_name=self.collection_name
-                    ),
-                )
+            # Create vector store in a single pass (auto-persisted by Chroma 0.4+)
+            self.vectorstore = Chroma.from_documents(
+                documents=documents,
+                embedding=self.embeddings,
+                persist_directory=str(collection_dir),
+                collection_name=self.collection_name
+            )
 
             self.logger.info(f"Vector store for {data_type} initialized successfully")
             return True
@@ -296,16 +248,6 @@ class RAGService:
         
         # Initialize curriculum store
         results["curriculum"] = self.initialize_vector_store("curriculum", force_recreate)
-
-        # Free-tier embed quota is per-minute. Cool down before large career ingestion.
-        cooldown_sec = float(os.getenv("RAG_INTER_STORE_COOLDOWN_SEC", "65"))
-        cooldown_sec = max(0.0, cooldown_sec)
-        if cooldown_sec > 0:
-            self.logger.info(
-                "Sleeping %.1f seconds between curriculum and career initialization.",
-                cooldown_sec,
-            )
-            time.sleep(cooldown_sec)
 
         # Initialize career store
         results["career"] = self.initialize_vector_store("career", force_recreate)
