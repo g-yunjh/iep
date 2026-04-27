@@ -5,6 +5,8 @@ converts them into documents suitable for vector embedding and RAG retrieval.
 
 import json
 import logging
+import hashlib
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -15,47 +17,98 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AchievementStandard:
     """Represents a single achievement standard document."""
+    standard_id: str
     grade: str
     subject: str
+    source: str
+    domain: str
     disability_type: str
     achievement_standard: str
     learning_objectives: List[str]
     scaffolding_levels: Dict[str, str]
     activities: List[str]
 
+    @staticmethod
+    def _stringify_item(item: Any) -> str:
+        """Normalize mixed JSON items (str/dict/etc.) into readable text."""
+        if isinstance(item, str):
+            return item
+        if isinstance(item, dict):
+            for key in ("indicator", "text", "description", "label", "name"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            return " ".join(str(v).strip() for v in item.values() if str(v).strip())
+        return str(item).strip()
+
     def to_document(self) -> Dict[str, Any]:
         """Convert to a document format suitable for vector embedding."""
+        learning_objective_lines = [
+            f"- {self._stringify_item(obj)}"
+            for obj in self.learning_objectives
+            if self._stringify_item(obj)
+        ]
+        activity_lines = [
+            f"- {self._stringify_item(activity)}"
+            for activity in self.activities
+            if self._stringify_item(activity)
+        ]
+
+        general_scaffolding = self.scaffolding_levels.get("general", [])
+        if isinstance(general_scaffolding, list):
+            general_scaffolding_text = "; ".join(
+                self._stringify_item(item) for item in general_scaffolding if self._stringify_item(item)
+            ) or "N/A"
+        else:
+            general_scaffolding_text = self._stringify_item(general_scaffolding) or "N/A"
+
+        disability_specific = self.scaffolding_levels.get("disability_specific", {})
+        if isinstance(disability_specific, dict):
+            disability_scaffolding_text = "; ".join(
+                f"{k}: {self._stringify_item(v)}"
+                for k, v in disability_specific.items()
+                if self._stringify_item(v)
+            ) or "N/A"
+        else:
+            disability_scaffolding_text = self._stringify_item(disability_specific) or "N/A"
+
         content = f"""
 학년: {self.grade}
 과목: {self.subject}
 장애 유형: {self.disability_type}
+성취기준 ID: {self.standard_id}
 
 성취기준: {self.achievement_standard}
 
 학습 목표:
-{chr(10).join(f"- {obj}" for obj in self.learning_objectives)}
+{chr(10).join(learning_objective_lines)}
 
 스캐폴딩 수준:
-높음: {self.scaffolding_levels.get('high', 'N/A')}
-중간: {self.scaffolding_levels.get('medium', 'N/A')}
-낮음: {self.scaffolding_levels.get('low', 'N/A')}
+일반: {general_scaffolding_text}
+장애특성: {disability_scaffolding_text}
 
 활동:
-{chr(10).join(f"- {activity}" for activity in self.activities)}
+{chr(10).join(activity_lines)}
         """.strip()
 
         metadata = {
+            "achievement_standard_id": self.standard_id,
             "grade": self.grade,
             "subject": self.subject,
+            "domain": self.domain,
             "disability_type": self.disability_type,
-            "source": "special_education_standards",
+            "source": self.source,
             "content_type": "achievement_standard"
         }
+
+        fallback_id_source = f"{self.subject}|{self.grade}|{self.achievement_standard}"
+        fallback_id = hashlib.md5(fallback_id_source.encode("utf-8")).hexdigest()[:12]
+        document_id = self.standard_id or fallback_id
 
         return {
             "content": content,
             "metadata": metadata,
-            "id": f"{self.grade}_{self.subject}_{self.disability_type}_{hash(self.achievement_standard) % 10000}"
+            "id": document_id
         }
 
 
@@ -153,8 +206,11 @@ class DataLoader:
             standards = []
             for item in data:
                 standard = AchievementStandard(
+                    standard_id=item.get('id', ''),
                     grade=item.get('grade', ''),
                     subject=item.get('subject', ''),
+                    source=filename,
+                    domain="legacy",
                     disability_type=item.get('disability_type', ''),
                     achievement_standard=item.get('achievement_standard', ''),
                     learning_objectives=item.get('learning_objectives', []),
@@ -238,14 +294,24 @@ class DataLoader:
             data = json.load(f)
 
         standards = []
+        source_name = f"curriculum/{subject}/{file_path.name}"
+        domain = file_path.stem
         for item in data:
-            # Extract grade from file or item
-            grade = item.get('grade', file_path.stem)
+            # Parse grade from id prefix like "9국어01-04", fallback to explicit grade.
+            standard_id = str(item.get('id', '')).strip()
+            grade_match = re.match(r"^(\d+)", standard_id)
+            parsed_grade = grade_match.group(1) if grade_match else ""
+            grade = str(item.get('grade') or parsed_grade or "")
+            disability_specific = item.get('scaffolding_bank', {}).get('disability_specific', {})
+            disability_type = ", ".join(disability_specific.keys()) if isinstance(disability_specific, dict) else ""
             
             standard = AchievementStandard(
+                standard_id=standard_id,
                 grade=grade,
                 subject=subject,
-                disability_type=item.get('disability_type', ''),
+                source=source_name,
+                domain=domain,
+                disability_type=disability_type,
                 achievement_standard=item.get('goal', ''),
                 learning_objectives=item.get('search_keywords', []),
                 scaffolding_levels=item.get('scaffolding_bank', {}),

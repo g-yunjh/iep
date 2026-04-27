@@ -4,6 +4,7 @@ Supports multiple collections (curriculum, career) for different RAG use cases.
 """
 
 import logging
+import math
 import os
 import shutil
 import time
@@ -206,9 +207,12 @@ class RAGService:
             # Convert to LangChain documents
             documents = []
             for doc_data in documents_data:
+                metadata = dict(doc_data["metadata"])
+                if doc_data.get("id"):
+                    metadata["id"] = doc_data["id"]
                 doc = Document(
                     page_content=doc_data["content"],
-                    metadata=doc_data["metadata"]
+                    metadata=metadata
                 )
                 documents.append(doc)
 
@@ -262,7 +266,7 @@ class RAGService:
         subject: Optional[str] = None,
         disability_type: Optional[str] = None,
         k: int = 5,
-        score_threshold: float = 0.7
+        score_threshold: float = 1.2
     ) -> List[Dict[str, Any]]:
         """
         Search for similar documents using semantic search.
@@ -274,7 +278,7 @@ class RAGService:
             subject: Filter by subject (curriculum only)
             disability_type: Filter by disability type (curriculum only)
             k: Number of results to return
-            score_threshold: Minimum similarity score
+            score_threshold: Maximum distance threshold (lower is better)
 
         Returns:
             List of relevant documents with metadata and scores
@@ -319,17 +323,37 @@ class RAGService:
                 filter=filter_condition
             )
 
-            # Filter by score threshold and format results
-            results = []
-            for doc, score in docs_and_scores:
-                if score >= score_threshold:
-                    result = {
-                        "content": doc.page_content,
-                        "metadata": doc.metadata,
-                        "score": float(score),
-                        "id": doc.metadata.get("id", "")
-                    }
-                    results.append(result)
+            # Chroma returns distance scores (lower is more similar).
+            # Filter by max distance; if all filtered out, fallback to top-k.
+            all_results = []
+            for doc, distance in docs_and_scores:
+                distance_value = float(distance)
+
+                # Convert distance to a smooth 0~1 similarity score.
+                # Chroma distance can exceed 1.0, so use exp(-distance) instead of (1 - distance).
+                similarity = max(0.0, min(1.0, math.exp(-distance_value)))
+                result = {
+                    "content": doc.page_content,
+                    "metadata": doc.metadata,
+                    "domain": doc.metadata.get("domain", ""),
+                    "distance": distance_value,
+                    "score": similarity,
+                    "achievement_standard_id": doc.metadata.get("achievement_standard_id", ""),
+                    "id": doc.metadata.get("id", ""),
+                }
+                all_results.append(result)
+
+            all_results.sort(key=lambda item: item["distance"])
+            results = [item for item in all_results if item["distance"] <= score_threshold]
+            if not results and all_results:
+                self.logger.info(
+                    "No results met distance threshold %.3f for %s query; "
+                    "returning top-%d nearest results instead.",
+                    score_threshold,
+                    data_type,
+                    min(k, len(all_results)),
+                )
+                results = all_results[:k]
 
             self.logger.info(f"Found {len(results)} relevant documents for {data_type} query")
             return results

@@ -26,18 +26,12 @@ class LLMService:
     """
 
     def __init__(self, model: Optional[str] = None, temperature: float = 0.3):
-        requested_model = model or os.getenv("GEMINI_CHAT_MODEL", "gemini-1.5-flash")
-        # Keep latency/cost predictable: force flash when pro is requested.
-        if "pro" in requested_model.lower():
-            self.model_name = "gemini-1.5-flash"
-            logger.warning(
-                "Requested Gemini chat model '%s' is a pro tier. "
-                "Overriding to '%s'.",
-                requested_model,
-                self.model_name,
-            )
-        else:
-            self.model_name = requested_model
+        requested_model = model or os.getenv("GEMINI_CHAT_MODEL", "gemini-2.0-flash")
+        self.model_name = requested_model
+        self.fallback_models = [
+            "gemini-2.0-flash",
+            "gemini-2.5-flash",
+        ]
         self.temperature = temperature
         self.logger = logging.getLogger(__name__)
         self.client: Optional[genai.Client] = None
@@ -396,26 +390,51 @@ class LLMService:
         if not self.client:
             raise ValueError("Gemini client is not initialized. Check API key settings.")
 
-        try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=self.temperature,
-                    max_output_tokens=2000,
-                    response_mime_type="application/json",
-                ),
-            )
-            result_text = response.text
-            if not result_text:
-                raise ValueError("Empty response from Gemini model")
-            return json.loads(self._extract_json_payload(result_text))
-        except Exception as e:
-            self.logger.error(
-                "Gemini generate_content call failed (%s): %s. "
-                "Check API key validity, billing/quota, model name, and network connectivity.",
-                e.__class__.__name__,
-                str(e),
-            )
-            raise
+        candidate_models: List[str] = []
+        for model_name in [self.model_name, *self.fallback_models]:
+            if model_name not in candidate_models:
+                candidate_models.append(model_name)
+
+        last_error: Optional[Exception] = None
+        for model_name in candidate_models:
+            try:
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=self.temperature,
+                        max_output_tokens=2000,
+                        response_mime_type="application/json",
+                    ),
+                )
+                result_text = response.text
+                if not result_text:
+                    raise ValueError("Empty response from Gemini model")
+                if model_name != self.model_name:
+                    self.logger.warning(
+                        "Gemini model '%s' unavailable. Using fallback model '%s'.",
+                        self.model_name,
+                        model_name,
+                    )
+                    self.model_name = model_name
+                return json.loads(self._extract_json_payload(result_text))
+            except Exception as e:
+                last_error = e
+                self.logger.warning(
+                    "Gemini generate_content failed with model '%s' (%s): %s",
+                    model_name,
+                    e.__class__.__name__,
+                    str(e),
+                )
+
+        self.logger.error(
+            "Gemini generate_content failed for all candidate models %s. Last error (%s): %s. "
+            "Check API key validity, model availability, billing/quota, and network connectivity.",
+            candidate_models,
+            last_error.__class__.__name__ if last_error else "UnknownError",
+            str(last_error) if last_error else "No error details",
+        )
+        if last_error:
+            raise last_error
+        raise RuntimeError("Gemini generate_content failed without error details")

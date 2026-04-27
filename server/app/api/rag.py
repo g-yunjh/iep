@@ -4,6 +4,9 @@ Provides RAG-based recommendations for scaffolding and career guidance.
 """
 
 import json
+import math
+import os
+import re
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
@@ -53,6 +56,113 @@ def _get_persona_student(db: Session) -> Student:
     if not student:
         raise HTTPException(status_code=404, detail="학생 프로필이 없습니다. 먼저 /student/traits에서 프로필을 설정해 주세요.")
     return student
+
+
+def _extract_query_constraints(query: str) -> Dict[str, List[str]]:
+    """
+    Extract preference/avoidance phrases from free-form query without job hardcoding.
+    """
+    text = (query or "").strip()
+    if not text:
+        return {"prefer": [], "avoid": []}
+
+    prefer: List[str] = []
+    avoid: List[str] = []
+    chunks = [part.strip() for part in re.split(r"[,.]|하지만|그런데|다만|면서|이고|이며", text) if part.strip()]
+
+    for chunk in chunks:
+        lowered = chunk.lower()
+        is_avoid = any(token in lowered for token in ["어렵", "힘들", "싫", "부담", "약함", "못하", "안 되"])
+        if is_avoid:
+            avoid.append(chunk)
+        else:
+            prefer.append(chunk)
+
+    return {"prefer": prefer[:5], "avoid": avoid[:5]}
+
+
+def _tokenize_korean_text(text: str) -> List[str]:
+    tokens = [token for token in re.split(r"[^0-9A-Za-z가-힣]+", (text or "").lower()) if token]
+    return [token for token in tokens if len(token) >= 2]
+
+
+def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+    if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+    dot = sum(a * b for a, b in zip(vec_a, vec_b))
+    norm_a = math.sqrt(sum(a * a for a in vec_a))
+    norm_b = math.sqrt(sum(b * b for b in vec_b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return max(-1.0, min(1.0, dot / (norm_a * norm_b)))
+
+
+def _semantic_constraint_score(
+    candidate_text: str,
+    constraints: List[str],
+    embeddings,
+) -> float:
+    """
+    Score semantic relevance using embedding cosine similarity (0~1).
+    """
+    if not constraints:
+        return 0.0
+    try:
+        candidate_vec = embeddings.embed_query(candidate_text)
+    except Exception:
+        return 0.0
+
+    sims: List[float] = []
+    for phrase in constraints:
+        try:
+            phrase_vec = embeddings.embed_query(phrase)
+            sim = _cosine_similarity(candidate_vec, phrase_vec)
+            sims.append(max(0.0, min(1.0, (sim + 1.0) / 2.0)))
+        except Exception:
+            continue
+
+    if not sims:
+        return 0.0
+    return sum(sims) / len(sims)
+
+
+def _compute_skill_alignment(current_skills: str, required_skills: List[str]) -> Dict[str, Any]:
+    """
+    Lightweight, deterministic skill alignment without LLM/API dependency.
+    """
+    current_tokens = set(_tokenize_korean_text(current_skills))
+    normalized_required = [skill.strip() for skill in required_skills if skill and skill.strip()]
+    if not normalized_required:
+        return {
+            "match_ratio": 0.0,
+            "matched_skills": [],
+            "missing_skills": [],
+            "recommendation_strength": "unknown",
+        }
+
+    matched: List[str] = []
+    missing: List[str] = []
+    for skill in normalized_required:
+        skill_tokens = set(_tokenize_korean_text(skill))
+        if skill_tokens and current_tokens.intersection(skill_tokens):
+            matched.append(skill)
+        else:
+            missing.append(skill)
+
+    ratio = len(matched) / max(len(normalized_required), 1)
+    if ratio >= 0.6:
+        strength = "high"
+    elif ratio >= 0.3:
+        strength = "medium"
+    else:
+        strength = "low"
+
+    return {
+        "match_ratio": ratio,
+        "matched_skills": matched[:5],
+        "missing_skills": missing[:5],
+        "recommendation_strength": strength,
+    }
 
 
 # =============================================================================
@@ -233,71 +343,83 @@ async def get_career_recommendation(
 async def search_careers(
     query: str,
     k: int = 5,
-    db: Session = Depends(get_db)
+    current_skills: Optional[str] = None,
 ):
     """
-    커리어 데이터 검색 및 역량 격차 분석 API
+    커리어 데이터 검색 API
+    - 직업 후보 검색 + 쿼리 제약 기반 재정렬만 수행
+    - 현재 역량 비교는 간단한 규칙 기반으로 제공
+    - 정밀 역량/경로 분석은 POST /career-recommendation에서 수행
     """
     try:
         # 1. 기본 직업 검색 수행
         rag_service = RAGService()
-        results = rag_service.search_career(query=query, k=k)
-        
-        # 2. 단일 학생 정보에서 현재 역량(설명) 가져오기
-        current_skills = ""
-        student = db.query(Student).order_by(Student.id.asc()).first()
-        if student:
-            latest_fb = (
-                db.query(Feedback)
-                .filter(Feedback.student_id == student.id)
-                .order_by(Feedback.created_at.desc())
-                .first()
-            )
-            current_skills = (
-                latest_fb.teacher_description
-                if latest_fb and latest_fb.teacher_description
-                else " ".join(
-                    filter(
-                        None,
-                        [student.current_level, student.behavioral_traits, student.additional_diagnoses],
-                    )
-                )
-            )
+        # Retrieve a wider candidate pool first, then rerank and trim to k.
+        candidate_k = max(k * 12, 60)
+        results = rag_service.search_career(query=query, k=candidate_k)
 
-        # 3. 검색 결과에 역량 격차 정보 추가
+        # 2. 검색 결과 구성 (격차 분석은 recommendation endpoint에서 수행)
         enhanced_results = []
+        constraints = _extract_query_constraints(query)
+        effective_current_skills = (
+            (current_skills or "").strip()
+            or os.getenv("CAREER_SEARCH_DEFAULT_CURRENT_SKILLS", "").strip()
+        )
         for res in results:
             content = res.get("content", "")
             metadata = res.get("metadata", {})
             
-            # 기존 헬퍼 함수로 역량 추출 및 격차 분석
+            # 직업 문서에서 요구 역량 추출
             required = _extract_competencies(content)["required"]
-            
-            gap_data = None
-            if current_skills:
-                # 임시 객체를 생성하여 기존 분석 함수 재활용
-                temp_career = RecommendedCareer(
-                    job_id=metadata.get("job_id", ""),
-                    job_title=metadata.get("job_title", ""),
-                    category=metadata.get("category", ""),
-                    match_score=res.get("score", 0),
-                    required_skills=required,
-                    outlook=metadata.get("outlook_scaffolding", "")
-                )
-                gaps = _analyze_skill_gaps(current_skills, [temp_career])
-                gap_data = gaps[0] if gaps else None
+
+            base_score = float(res.get("score", 0))
+            candidate_text = " ".join([
+                metadata.get("job_title", "") or "",
+                metadata.get("category", "") or "",
+                " ".join(required),
+                content,
+            ])
+            prefer_score = _semantic_constraint_score(
+                candidate_text=candidate_text,
+                constraints=constraints.get("prefer", []),
+                embeddings=rag_service.embeddings,
+            )
+            avoid_score = _semantic_constraint_score(
+                candidate_text=candidate_text,
+                constraints=constraints.get("avoid", []),
+                embeddings=rag_service.embeddings,
+            )
+            # Keep semantic retrieval as primary signal, then apply lightweight constraint reranking.
+            adjusted_score = max(0.0, min(1.0, base_score + (0.20 * prefer_score) - (0.35 * avoid_score)))
+
+            alignment = (
+                _compute_skill_alignment(effective_current_skills, required)
+                if effective_current_skills
+                else {
+                    "match_ratio": 0.0,
+                    "matched_skills": [],
+                    "missing_skills": [],
+                    "recommendation_strength": "unknown",
+                }
+            )
 
             enhanced_results.append({
                 "job_title": metadata.get("job_title"),
                 "required_skills": required,
-                "skill_gap": gap_data,  # 분석된 격차 정보 추가
-                "score": res.get("score")
+                "score": adjusted_score,
+                "base_score": base_score,
+                "prefer_match_score": prefer_score,
+                "avoid_match_score": avoid_score,
+                "skill_alignment": alignment,
             })
 
+        enhanced_results.sort(key=lambda item: item.get("score", 0), reverse=True)
+
+        top_results = enhanced_results[:k]
         return {
             "query": query,
-            "results": enhanced_results,
-            "count": len(enhanced_results)
+            "results": top_results,
+            "count": len(top_results)
         }
 
     except Exception as e:
@@ -443,26 +565,43 @@ def _analyze_skill_gaps(
 ) -> List[SkillGap]:
     """LLM을 사용해 현재 역량과 목표 직업 요구 역량 간의 문맥적 격차를 분석합니다."""
     skill_gaps = []
-
-    service = llm_service or LLMService()
+    try:
+        service = llm_service or LLMService()
+    except Exception:
+        service = None
     for career in recommended_careers[:3]:
-        gap_result = service.analyze_career_skill_gap(
-            current_skills=current_skills,
-            job_title=career.job_title,
-            required_skills=career.required_skills,
-            outlook_scaffolding=career.outlook,
-            grade=grade,
-            disability_type=disability_type,
-        )
+        gap_result: Dict[str, Any] = {}
+        if service:
+            try:
+                gap_result = service.analyze_career_skill_gap(
+                    current_skills=current_skills,
+                    job_title=career.job_title,
+                    required_skills=career.required_skills,
+                    outlook_scaffolding=career.outlook,
+                    grade=grade,
+                    disability_type=disability_type,
+                )
+            except Exception:
+                gap_result = {}
 
         gap_skills = gap_result.get("gap_skills", [])
+        # Fallback: LLM 실패 시 단순 규칙 기반 gap 생성으로 API 500 방지
+        if not gap_skills:
+            gap_skills = career.required_skills[:5]
+
         if gap_skills:
             skill_gaps.append(SkillGap(
                 job_title=career.job_title,
                 current_level=gap_result.get("current_level", []),
                 required_level=gap_result.get("required_level", career.required_skills),
                 gap_skills=gap_skills,
-                development_suggestions=gap_result.get("development_suggestions", []),
+                development_suggestions=gap_result.get(
+                    "development_suggestions",
+                    [
+                        "관찰 가능한 행동 단위로 목표를 쪼개서 연습합니다.",
+                        "시각/촉각 단서와 반복 루틴으로 요구 역량을 단계적으로 학습합니다.",
+                    ],
+                ),
             ))
 
     return skill_gaps
@@ -479,19 +618,27 @@ def _generate_career_paths(
     paths = []
 
     profile_map = {p.get("job_title", ""): p for p in (career_profiles or [])}
-    service = llm_service or LLMService()
+    try:
+        service = llm_service or LLMService()
+    except Exception:
+        service = None
 
     for career in recommended_careers[:3]:
         profile = profile_map.get(career.job_title, {})
-        roadmap = service.generate_career_path(
-            current_skills=request.current_skills,
-            job_title=career.job_title,
-            required_skills=career.required_skills,
-            outlook_scaffolding=career.outlook or profile.get("outlook_scaffolding", ""),
-            certifications=profile.get("certifications", []),
-            education_paths=profile.get("education", []),
-            disability_type=disability_type,
-        )
+        roadmap: Dict[str, Any] = {}
+        if service:
+            try:
+                roadmap = service.generate_career_path(
+                    current_skills=request.current_skills,
+                    job_title=career.job_title,
+                    required_skills=career.required_skills,
+                    outlook_scaffolding=career.outlook or profile.get("outlook_scaffolding", ""),
+                    certifications=profile.get("certifications", []),
+                    education_paths=profile.get("education", []),
+                    disability_type=disability_type,
+                )
+            except Exception:
+                roadmap = {}
 
         stages = roadmap.get("stages", [])
         if not isinstance(stages, list):
