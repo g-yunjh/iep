@@ -314,7 +314,16 @@ class RAGService:
                 if disability_type:
                     filter_dict["disability_type"] = disability_type
 
-            filter_condition = filter_dict if filter_dict else None
+            # Chroma where filter expects a single operator at top-level when
+            # combining multiple conditions. Build `$and` for multi-field filters.
+            if not filter_dict:
+                filter_condition = None
+            elif len(filter_dict) == 1:
+                filter_condition = filter_dict
+            else:
+                filter_condition = {
+                    "$and": [{key: value} for key, value in filter_dict.items()]
+                }
 
             # Perform similarity search with score
             docs_and_scores = self.vectorstore.similarity_search_with_score(
@@ -378,6 +387,28 @@ class RAGService:
             subject=subject,
             disability_type=disability_type,
             k=k
+        )
+
+    def search_similar_standards(
+        self,
+        query: str,
+        grade: Optional[str] = None,
+        subject: Optional[str] = None,
+        disability_type: Optional[str] = None,
+        k: int = 5,
+        score_threshold: float = 1.2,
+    ) -> List[Dict[str, Any]]:
+        """
+        Backward-compatible curriculum search used by RAGOrchestrator.
+        """
+        return self.search_similar(
+            query=query,
+            data_type="curriculum",
+            grade=grade,
+            subject=subject,
+            disability_type=disability_type,
+            k=k,
+            score_threshold=score_threshold,
         )
 
     def search_career(

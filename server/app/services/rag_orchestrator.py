@@ -129,14 +129,14 @@ class RAGOrchestrator:
         # Create search query from teacher description
         search_query = f"{request.grade} {request.subject} {disability_type} {request.teacher_description}"
 
-        # Search vector store
-        search_results = self.rag_service.search_similar_standards(
+        # Reuse the same curriculum retrieval path as /rag/curriculum-search.
+        # Keep a tighter top-k for recommendation assembly.
+        search_results = self.rag_service.search_curriculum(
             query=search_query,
             grade=request.grade,
             subject=request.subject,
             disability_type=disability_type,
             k=3,  # Get top 3 most relevant standards
-            score_threshold=0.6
         )
 
         # Convert to AchievementStandardReference objects
@@ -242,6 +242,18 @@ class RAGOrchestrator:
                 levels["medium"] = line.replace("중간:", "").strip()
             elif line.startswith("낮음:"):
                 levels["low"] = line.replace("낮음:", "").strip()
+            # Curriculum loader stores flattened bank lines under this section.
+            # Map them to level defaults so downstream response is still curriculum-grounded.
+            elif line.startswith("일반:"):
+                general_text = line.replace("일반:", "").strip()
+                if general_text and general_text != "N/A":
+                    for level_key in ("high", "medium", "low"):
+                        levels.setdefault(level_key, general_text)
+            elif line.startswith("장애특성:"):
+                disability_text = line.replace("장애특성:", "").strip()
+                if disability_text and disability_text != "N/A":
+                    for level_key in ("high", "medium", "low"):
+                        levels.setdefault(level_key, disability_text)
 
         return levels
 
@@ -261,6 +273,13 @@ class RAGOrchestrator:
 
             if re.match(r"^general\s*:\s*$", line, flags=re.IGNORECASE):
                 in_general_section = True
+                continue
+            # Flattened format from curriculum documents.
+            if line.startswith("일반:"):
+                raw = line.replace("일반:", "").strip()
+                if raw and raw != "N/A":
+                    for part in [p.strip() for p in raw.split(";") if p.strip()]:
+                        strategies.append(part)
                 continue
 
             if in_general_section and (line.endswith(":") and not line.startswith("-")):
@@ -287,6 +306,22 @@ class RAGOrchestrator:
 
             if re.match(r"^disability_specific\s*:\s*$", line, flags=re.IGNORECASE):
                 in_disability_section = True
+                continue
+            # Flattened format from curriculum documents:
+            # 장애특성: 지적장애: 전략1; 자폐성장애: 전략2
+            if line.startswith("장애특성:"):
+                raw = line.replace("장애특성:", "").strip()
+                if raw and raw != "N/A":
+                    entries = [entry.strip() for entry in raw.split(";") if entry.strip()]
+                    for entry in entries:
+                        if ":" in entry:
+                            disability, strategy = entry.split(":", 1)
+                            disability = disability.strip()
+                            strategy = strategy.strip()
+                            if disability and strategy:
+                                strategies[disability] = strategy
+                        else:
+                            strategies["default"] = entry
                 continue
 
             if in_disability_section and (line.endswith(":") and not line.startswith("-")):
@@ -374,8 +409,11 @@ class RAGOrchestrator:
             detected_level=llm_analysis.detected_level,
             primary_standard=primary_standard
         )
-        # Keep LLM strategies as fallback/additional context.
-        final_strategies = matched_strategies or llm_analysis.recommended_strategies
+        # Curriculum-first: always prioritize retrieved standard strategies.
+        # Use LLM strategies only as strict fallback when curriculum parsing yields nothing.
+        final_strategies = matched_strategies
+        if not final_strategies:
+            final_strategies = llm_analysis.recommended_strategies
 
         scaffolding_details = self._create_scaffolding_details(
             detected_level=llm_analysis.detected_level,
