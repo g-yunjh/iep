@@ -53,7 +53,6 @@ def _coerce_json_string_list(items: Any) -> List[str]:
 def _google_api_key() -> Optional[str]:
     return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 
-
 class LLMService:
     """
     Service for LLM-powered analysis of student descriptions and scaffolding recommendations.
@@ -62,9 +61,6 @@ class LLMService:
     def __init__(self, model: Optional[str] = None, temperature: float = 0.3):
         requested_model = model or os.getenv("GEMINI_CHAT_MODEL", "gemini-2.0-flash")
         self.model_name = requested_model
-        self.fallback_models = [
-            "gemini-2.5-flash",
-        ]
 
         self.temperature = temperature
         self.logger = logging.getLogger(__name__)
@@ -83,7 +79,7 @@ class LLMService:
     def analyze_student_description(
         self,
         teacher_description: str,
-        grade: str,
+        grade: Optional[str],
         subject: str,
         disability_type: str,
         retrieved_standards: List[AchievementStandardReference],
@@ -170,7 +166,7 @@ class LLMService:
     def _create_analysis_prompt(
         self,
         teacher_description: str,
-        grade: str,
+        grade: Optional[str],
         subject: str,
         disability_type: str,
         standards_context: str,
@@ -182,7 +178,7 @@ class LLMService:
 다음 정보를 바탕으로 학생의 학습 수준을 분석하고 스캐폴딩 전략을 추천해주세요:
 
 **학생 정보:**
-- 학년: {grade}
+- 학년: {grade or "정보 없음"}
 - 과목: {subject}
 - 장애 유형: {disability_type}
 
@@ -463,66 +459,53 @@ class LLMService:
         if not self.client:
             raise ValueError("Gemini client is not initialized. Check API key settings.")
 
-        candidate_models: List[str] = []
-        for model_name in [self.model_name, *self.fallback_models]:
-            if model_name not in candidate_models:
-                candidate_models.append(model_name)
-
         last_error: Optional[Exception] = None
-        for model_name in candidate_models:
-            for attempt_idx in range(2):
-                try:
-                    attempt_prompt = prompt
-                    if attempt_idx == 1:
-                        attempt_prompt = (
-                            f"{prompt}\n\n"
-                            "중요: 반드시 JSON 객체 1개만 출력하세요. "
-                            "설명 문장/마크다운/코드블록을 절대 출력하지 마세요."
-                        )
-                    response = self.client.models.generate_content(
-                        model=model_name,
-                        contents=attempt_prompt,
-                        config=types.GenerateContentConfig(
-                            system_instruction=system_instruction,
-                            temperature=self.temperature,
-                            max_output_tokens=2000,
-                            response_mime_type="application/json",
-                        ),
+        for attempt_idx in range(2):
+            try:
+                attempt_prompt = prompt
+                if attempt_idx == 1:
+                    attempt_prompt = (
+                        f"{prompt}\n\n"
+                        "중요: 반드시 JSON 객체 1개만 출력하세요. "
+                        "설명 문장/마크다운/코드블록을 절대 출력하지 마세요."
                     )
-                    result_text = response.text
-                    if not result_text:
-                        raise ValueError("Empty response from Gemini model")
-                    if model_name != self.model_name:
-                        self.logger.warning(
-                            "Gemini model '%s' unavailable. Using fallback model '%s'.",
-                            self.model_name,
-                            model_name,
-                        )
-                        self.model_name = model_name
-                    return self._parse_json_with_salvage(result_text)
-                except json.JSONDecodeError as e:
-                    last_error = e
-                    self.logger.warning(
-                        "Gemini JSON parse failed with model '%s' (attempt %d/2): %s",
-                        model_name,
-                        attempt_idx + 1,
-                        str(e),
-                    )
-                    continue
-                except Exception as e:
-                    last_error = e
-                    self.logger.warning(
-                        "Gemini generate_content failed with model '%s' (%s): %s",
-                        model_name,
-                        e.__class__.__name__,
-                        str(e),
-                    )
-                    break
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=attempt_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=self.temperature,
+                        max_output_tokens=2000,
+                        response_mime_type="application/json",
+                    ),
+                )
+                result_text = response.text
+                if not result_text:
+                    raise ValueError("Empty response from Gemini model")
+                return self._parse_json_with_salvage(result_text)
+            except json.JSONDecodeError as e:
+                last_error = e
+                self.logger.warning(
+                    "Gemini JSON parse failed with model '%s' (attempt %d/2): %s",
+                    self.model_name,
+                    attempt_idx + 1,
+                    str(e),
+                )
+                continue
+            except Exception as e:
+                last_error = e
+                self.logger.warning(
+                    "Gemini generate_content failed with model '%s' (%s): %s",
+                    self.model_name,
+                    e.__class__.__name__,
+                    str(e),
+                )
+                break
 
         self.logger.error(
-            "Gemini generate_content failed for all candidate models %s. Last error (%s): %s. "
-            "Check API key validity, model availability, billing/quota, and network connectivity.",
-            candidate_models,
+            "Gemini generate_content failed for model '%s'. Last error (%s): %s. "
+            "Rule-based analysis fallback will be used by orchestrator.",
+            self.model_name,
             last_error.__class__.__name__ if last_error else "UnknownError",
             str(last_error) if last_error else "No error details",
         )

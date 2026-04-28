@@ -6,7 +6,7 @@ Coordinates vector search, LLM analysis, and recommendation generation.
 import time
 import logging
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from .llm_service import LLMService
 from ..schemas.rag import (
     ScaffoldingRecommendationRequest,
     RAGAnalysisResult,
+    LLMAnalysisResult,
     ScaffoldingRecommendation,
     AchievementStandardReference,
     LearningActivity,
@@ -67,21 +68,31 @@ class RAGOrchestrator:
                 disability_type=student.disability_type or "",
             )
 
-            # Step 3: Analyze with LLM
-            llm_analysis = self.llm_service.analyze_student_description(
-                teacher_description=request.teacher_description,
-                grade=request.grade,
-                subject=request.subject,
-                disability_type=student.disability_type or "",
-                retrieved_standards=retrieved_standards,
-                past_feedback=past_feedback
-            )
+            # Step 3: Analyze with LLM (or deterministic fallback when quota/network fails)
+            try:
+                llm_analysis = self.llm_service.analyze_student_description(
+                    teacher_description=request.teacher_description,
+                    grade=request.grade,
+                    subject=request.subject,
+                    disability_type=student.disability_type or "",
+                    retrieved_standards=retrieved_standards,
+                    past_feedback=past_feedback
+                )
+            except Exception as llm_error:
+                self.logger.warning(
+                    "LLM unavailable for scaffolding analysis (%s): %s. "
+                    "Using rule-based fallback analysis.",
+                    llm_error.__class__.__name__,
+                    str(llm_error),
+                )
+                llm_analysis = self._create_rule_based_analysis(request, retrieved_standards)
 
             # Step 4: Generate scaffolding recommendation
             scaffolding_recommendation = self._generate_scaffolding_recommendation(
                 request=request,
                 llm_analysis=llm_analysis,
-                retrieved_standards=retrieved_standards
+                retrieved_standards=retrieved_standards,
+                student_disability_type=student.disability_type or "",
             )
 
             # Step 5: Calculate processing time
@@ -126,18 +137,28 @@ class RAGOrchestrator:
         Returns:
             List of relevant achievement standards
         """
-        # Create search query from teacher description
-        search_query = f"{request.grade} {request.subject} {disability_type} {request.teacher_description}"
+        # Grade is intentionally excluded from strict filtering.
+        # Many special-education learners do not align with grade-based progression.
+        search_query = f"{request.subject} {disability_type} {request.teacher_description}"
 
-        # Reuse the same curriculum retrieval path as /rag/curriculum-search.
-        # Keep a tighter top-k for recommendation assembly.
-        search_results = self.rag_service.search_curriculum(
-            query=search_query,
-            grade=request.grade,
-            subject=request.subject,
-            disability_type=disability_type,
-            k=3,  # Get top 3 most relevant standards
-        )
+        # Multi-pass retrieval: progressively relax filters so recommendation does not
+        # collapse to fallback only because one metadata field failed exact matching.
+        search_attempts = [
+            {"grade": None, "subject": request.subject, "disability_type": None},
+            {"grade": None, "subject": None, "disability_type": None},
+        ]
+
+        search_results: List[Dict[str, Any]] = []
+        for attempt in search_attempts:
+            search_results = self.rag_service.search_curriculum(
+                query=search_query,
+                grade=attempt["grade"],
+                subject=attempt["subject"],
+                disability_type=attempt["disability_type"],
+                k=3,  # Get top 3 most relevant standards
+            )
+            if search_results:
+                break
 
         # Convert to AchievementStandardReference objects
         standards = []
@@ -145,6 +166,7 @@ class RAGOrchestrator:
             metadata = result.get("metadata", {})
             content = result.get("content", "")
             standard = AchievementStandardReference(
+                standard_id=str(metadata.get("achievement_standard_id", "") or ""),
                 grade=metadata.get("grade", ""),
                 subject=metadata.get("subject", ""),
                 disability_type=metadata.get("disability_type", ""),
@@ -386,7 +408,8 @@ class RAGOrchestrator:
         self,
         request: ScaffoldingRecommendationRequest,
         llm_analysis: Any,  # LLMAnalysisResult
-        retrieved_standards: List[AchievementStandardReference]
+        retrieved_standards: List[AchievementStandardReference],
+        student_disability_type: str,
     ) -> ScaffoldingRecommendation:
         """
         Generate detailed scaffolding recommendation based on LLM analysis.
@@ -403,11 +426,19 @@ class RAGOrchestrator:
         primary_standard = retrieved_standards[0] if retrieved_standards else None
 
         if not primary_standard:
+            self.logger.warning(
+                "No curriculum standards retrieved for scaffolding request "
+                "(grade=%s, subject=%s). Falling back to default recommendation.",
+                request.grade,
+                request.subject,
+            )
             return self._create_error_recommendation(request)
 
         matched_strategies = self._match_curriculum_strategies(
+            teacher_description=request.teacher_description,
             detected_level=llm_analysis.detected_level,
-            primary_standard=primary_standard
+            retrieved_standards=retrieved_standards,
+            student_disability_type=student_disability_type,
         )
         # Curriculum-first: always prioritize retrieved standard strategies.
         # Use LLM strategies only as strict fallback when curriculum parsing yields nothing.
@@ -425,11 +456,59 @@ class RAGOrchestrator:
         rationale = self._create_rationale(llm_analysis, primary_standard)
 
         return ScaffoldingRecommendation(
-            recommended_level=llm_analysis.detected_level,
+            recommended_level=self._level_to_korean(llm_analysis.detected_level),
             rationale=rationale,
             scaffolding_details=scaffolding_details,
             achievement_standard=primary_standard,
-            additional_notes=self._create_additional_notes(llm_analysis)
+            related_achievement_standards=self._collect_related_standard_texts(retrieved_standards),
+            additional_notes=None
+        )
+
+    def _create_rule_based_analysis(
+        self,
+        request: ScaffoldingRecommendationRequest,
+        retrieved_standards: List[AchievementStandardReference],
+    ) -> LLMAnalysisResult:
+        """
+        Deterministic analysis used when external LLM call is unavailable.
+        """
+        text = (request.teacher_description or "").lower()
+
+        low_signals = ["어려", "힘들", "도움", "지원", "못", "불안정", "지시", "거부"]
+        high_signals = ["스스로", "자발", "독립", "정확", "유지", "가능", "완료"]
+
+        low_hits = sum(1 for token in low_signals if token in text)
+        high_hits = sum(1 for token in high_signals if token in text)
+
+        if high_hits >= low_hits + 2:
+            detected_level = "high"
+        elif low_hits >= high_hits + 2:
+            detected_level = "low"
+        else:
+            detected_level = "medium"
+
+        gaps: List[str] = []
+        if retrieved_standards:
+            for standard in retrieved_standards[:2]:
+                gaps.extend((standard.diagnostic_criteria or [])[:2])
+        if not gaps:
+            gaps = ["교사 설명 기반으로 우선 지원 우선순위를 정리해 단계적으로 적용이 필요합니다."]
+
+        # Confidence: reflect rule-match strength + retrieval relevance instead of fixed value.
+        signal_gap = abs(high_hits - low_hits)
+        signal_conf = min(0.18, 0.04 * signal_gap)
+        top_relevance = 0.0
+        if retrieved_standards:
+            top_relevance = max(float(s.relevance_score or 0.0) for s in retrieved_standards[:3])
+        relevance_conf = min(0.20, top_relevance * 0.25)
+        confidence = max(0.35, min(0.78, 0.42 + signal_conf + relevance_conf))
+
+        return LLMAnalysisResult(
+            detected_level=detected_level,
+            learning_gaps=gaps[:4],
+            recommended_strategies=[],
+            confidence_score=confidence,
+            analysis_summary="외부 LLM 호출이 불가해 규칙 기반 분석으로 대체했습니다.",
         )
 
     def _create_scaffolding_details(
@@ -448,10 +527,11 @@ class RAGOrchestrator:
 
         activities = []
         for idx, activity_text in enumerate(primary_standard.activities, start=1):
+            cleaned_activity = self._to_action_phrase(activity_text)
             activities.append(
                 LearningActivity(
                     name=f"교육과정 활동 {idx}",
-                    description=activity_text,
+                    description=cleaned_activity,
                     duration=None,
                     materials=None
                 )
@@ -468,7 +548,7 @@ class RAGOrchestrator:
             )
 
         return ScaffoldingLevel(
-            level=detected_level,
+            level=self._level_to_korean(detected_level),
             description=description,
             activities=activities,
             strategies=strategies
@@ -476,58 +556,130 @@ class RAGOrchestrator:
 
     def _match_curriculum_strategies(
         self,
+        teacher_description: str,
         detected_level: str,
-        primary_standard: AchievementStandardReference
+        retrieved_standards: List[AchievementStandardReference],
+        student_disability_type: str,
     ) -> List[str]:
         """
-        Match strategies from curriculum scaffolding data.
+        Match strategies from curriculum scaffolding bank across retrieved standards.
         Priority:
-        1) explicit scaffolding_bank.general + disability_specific
-        2) fallback to level description line
+        1) bank/general + disability_specific from top relevant standards
+        2) level descriptions as fallback
+        Then rank by lexical overlap with teacher_description and standard relevance.
         """
-        matched: List[str] = []
+        if not retrieved_standards:
+            return []
 
-        if primary_standard.scaffolding_bank_general:
-            matched.extend(primary_standard.scaffolding_bank_general)
+        query_tokens = self._tokenize(teacher_description)
+        scored_items: List[Tuple[float, str]] = []
 
-        disability_specific = primary_standard.scaffolding_bank_disability_specific or {}
-        if disability_specific:
-            # Prefer exact disability_type key, then partial match, then default, then first strategy.
-            key = primary_standard.disability_type.strip()
-            if key and key in disability_specific:
-                matched.append(disability_specific[key])
-            elif key:
-                for disability_name, strategy in disability_specific.items():
-                    if key in disability_name or disability_name in key:
-                        matched.append(strategy)
-                        break
-                else:
-                    if "default" in disability_specific:
-                        matched.append(disability_specific["default"])
-            elif "default" in disability_specific:
-                matched.append(disability_specific["default"])
+        for standard in retrieved_standards:
+            candidate_text = " ".join(
+                [standard.standard_text, " ".join(standard.activities or [])]
+            )
+            candidate_tokens = self._tokenize(candidate_text)
+            overlap = 0.0
+            if query_tokens and candidate_tokens:
+                overlap = len(query_tokens.intersection(candidate_tokens)) / len(query_tokens)
 
-            if not matched and disability_specific:
-                matched.append(next(iter(disability_specific.values())))
+            base_score = float(standard.relevance_score or 0.0)
+            score = base_score + (0.3 * overlap)
 
-        if not matched:
-            level_text = (primary_standard.scaffolding_levels or {}).get(detected_level)
+            for item in (standard.scaffolding_bank_general or []):
+                if item and item != "N/A":
+                    scored_items.append((score, item))
+
+            disability_specific = standard.scaffolding_bank_disability_specific or {}
+            normalized_disability = (student_disability_type or "").strip()
+            if disability_specific:
+                if normalized_disability:
+                    for key, item in disability_specific.items():
+                        key_text = str(key or "").strip()
+                        if key_text and (
+                            normalized_disability in key_text or key_text in normalized_disability
+                        ):
+                            if item and item != "N/A":
+                                scored_items.append((score + 0.20, item))
+                elif "default" in disability_specific:
+                    default_item = disability_specific.get("default")
+                    if default_item and default_item != "N/A":
+                        scored_items.append((score + 0.05, default_item))
+
+            level_text = (standard.scaffolding_levels or {}).get(detected_level)
             if level_text and level_text != "N/A":
-                matched.append(level_text)
+                scored_items.append((score - 0.05, level_text))
 
-        # De-duplicate while preserving order.
+        scored_items.sort(key=lambda item: item[0], reverse=True)
+        matched: List[str] = [text for _, text in scored_items]
+
         unique: List[str] = []
         for item in matched:
             if item and item not in unique:
                 unique.append(item)
-        return unique
+        return unique[:6]
+
+    def _tokenize(self, text: str) -> set:
+        tokens = re.split(r"[^0-9A-Za-z가-힣]+", (text or "").lower())
+        return {t for t in tokens if len(t) >= 2}
+
+    def _to_action_phrase(self, criterion: str) -> str:
+        """
+        Convert diagnostic question-style criterion into intervention action sentence.
+        """
+        text = (criterion or "").strip()
+        if not text:
+            return "학생의 현재 수행을 관찰하고 단계적 지원을 제공합니다."
+        if text.endswith("는가?"):
+            core = re.sub(r"는가\?$", "기", text).strip()
+            if core:
+                return f"{core}를 짧은 단계로 나누어 반복 연습합니다."
+        if text.endswith("?"):
+            core = text[:-1].strip()
+            if core:
+                return f"{core} 과제를 체크리스트 기반으로 연습합니다."
+        return text
+
+    def _level_to_korean(self, level: str) -> str:
+        mapping = {
+            "high": "상",
+            "medium": "중",
+            "low": "하",
+            "상": "상",
+            "중": "중",
+            "하": "하",
+        }
+        return mapping.get((level or "").strip().lower(), "중")
+
+    def _collect_related_standard_texts(
+        self,
+        retrieved_standards: List[AchievementStandardReference],
+    ) -> List[str]:
+        texts: List[str] = []
+        for standard in retrieved_standards[:3]:
+            standard_label = (
+                f"[{standard.standard_id}] {standard.standard_text}"
+                if standard.standard_id
+                else standard.standard_text
+            )
+            line = f"{standard_label} (관련도 {standard.relevance_score:.2f})"
+            if line not in texts:
+                texts.append(line)
+        return texts
 
     def _create_rationale(self, llm_analysis: Any, primary_standard: AchievementStandardReference) -> str:
         """Create rationale for the recommendation."""
-        return f"""학생의 현재 능력 수준을 '{llm_analysis.detected_level}'로 평가했습니다.
+        standard_label = (
+            f"[{primary_standard.standard_id}] {primary_standard.standard_text}"
+            if primary_standard.standard_id
+            else primary_standard.standard_text
+        )
+        level_text = self._level_to_korean(llm_analysis.detected_level)
+        level_phrase = self._level_with_particle(level_text)
+        return f"""학생의 현재 능력 수준을 '{level_text}'{level_phrase[len(level_text):]} 평가했습니다.
 주요 학습 격차: {', '.join(llm_analysis.learning_gaps)}
-관련 성취기준: {primary_standard.standard_text[:100]}...
-신뢰도: {llm_analysis.confidence_score:.1f}"""
+관련 성취기준: {standard_label[:120]}...
+신뢰도: {llm_analysis.confidence_score:.2f}"""
 
     def _create_additional_notes(self, llm_analysis: Any) -> str:
         """Create additional notes based on analysis."""
@@ -542,10 +694,10 @@ class RAGOrchestrator:
     def _create_error_recommendation(self, request: ScaffoldingRecommendationRequest) -> ScaffoldingRecommendation:
         """Create a fallback recommendation when analysis fails."""
         return ScaffoldingRecommendation(
-            recommended_level="medium",
+            recommended_level="중",
             rationale="분석 과정에서 오류가 발생하여 기본 추천을 제공합니다.",
             scaffolding_details=ScaffoldingLevel(
-                level="medium",
+                level="중",
                 description="중간 수준의 지원을 제공하세요.",
                 activities=[
                     LearningActivity(
@@ -558,7 +710,8 @@ class RAGOrchestrator:
                 strategies=["개별화된 접근", "긍정적 강화"]
             ),
             achievement_standard=AchievementStandardReference(
-                grade=request.grade,
+                standard_id="",
+                grade=request.grade or "",
                 subject=request.subject,
                 disability_type="",
                 standard_text="기본적인 학습 지원이 필요한 수준",
@@ -569,8 +722,19 @@ class RAGOrchestrator:
                 scaffolding_bank_disability_specific={},
                 relevance_score=0.5
             ),
-            additional_notes="전문가와 상담하여 자세한 평가를 받으시길 권장합니다."
+            related_achievement_standards=[],
+            additional_notes=None
         )
+
+    def _level_with_particle(self, level_korean: str) -> str:
+        """
+        Attach proper particle:
+        - 상/중 -> 으로
+        - 하 -> 로
+        """
+        if level_korean == "하":
+            return f"{level_korean}로"
+        return f"{level_korean}으로"
 
     def _get_persona_student(self, db: Session) -> Optional[Student]:
         return db.query(Student).order_by(Student.id.asc()).first()

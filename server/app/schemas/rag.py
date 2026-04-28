@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 class ScaffoldingRecommendationRequest(BaseModel):
     """Request model for scaffolding recommendation based on teacher/parent description."""
 
-    grade: str = Field(..., description="Student's grade (e.g., '초등학교 1학년')")
+    grade: Optional[str] = Field(None, description="Student's grade (optional; not strictly required)")
     subject: str = Field(..., description="Subject (e.g., '국어', '수학')")
     teacher_description: str = Field(..., description="Teacher or parent's description of the child's current state and abilities")
     past_feedback_ids: Optional[List[int]] = Field(None, description="Optional list of past feedback IDs to consider for context")
@@ -37,6 +37,7 @@ class ScaffoldingLevel(BaseModel):
 class AchievementStandardReference(BaseModel):
     """Reference to the achievement standard used for the recommendation."""
 
+    standard_id: str = Field(..., description="Achievement standard identifier (e.g., 2국어03-01)")
     grade: str = Field(..., description="Grade level")
     subject: str = Field(..., description="Subject")
     disability_type: str = Field(..., description="Disability type")
@@ -67,10 +68,14 @@ class AchievementStandardReference(BaseModel):
 class ScaffoldingRecommendation(BaseModel):
     """Complete scaffolding recommendation response."""
 
-    recommended_level: str = Field(..., description="Recommended scaffolding level (high/medium/low)")
+    recommended_level: str = Field(..., description="Recommended scaffolding level (상/중/하)")
     rationale: str = Field(..., description="Explanation of why this level was recommended")
     scaffolding_details: ScaffoldingLevel = Field(..., description="Detailed scaffolding recommendations")
     achievement_standard: AchievementStandardReference = Field(..., description="Reference to the relevant achievement standard")
+    related_achievement_standards: List[str] = Field(
+        default_factory=list,
+        description="Additional relevant achievement standards considered for recommendation",
+    )
     additional_notes: Optional[str] = Field(None, description="Additional notes or considerations")
 
 
