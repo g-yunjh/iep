@@ -219,7 +219,7 @@ async def search_curriculum(
 ):
     """
     커리큘럼 성취기준 검색 API
-    학생 상태描述을 기반으로 관련 성취기준을 검색합니다.
+    학생 상태서술을 기반으로 관련 성취기준을 검색합니다.
     """
     try:
         rag_service = RAGService()
@@ -260,7 +260,6 @@ async def get_career_recommendation(
     try:
         student = _get_persona_student(db)
         rag_service = RAGService()
-        llm_service = LLMService()
         
         # 1. 학생의 현재 역량/학습 내용을 기반으로 관련 직업 검색
         career_results = rag_service.search_career(
@@ -291,37 +290,46 @@ async def get_career_recommendation(
             required_skills.extend(profile.get("education", []))
             required_skills = [skill for skill in dict.fromkeys(required_skills) if skill]
             
+            # Coerce potentially missing/null vectorstore metadata to schema-safe values.
+            job_id = str(metadata.get("job_id") or "")
+            job_title = str(metadata.get("job_title") or "")
+            category = str(metadata.get("category") or "기타")
+            try:
+                match_score = float(career.get("score", 0) or 0)
+            except (TypeError, ValueError):
+                match_score = 0.0
+
             recommended_careers.append(RecommendedCareer(
-                job_id=metadata.get("job_id", ""),
-                job_title=metadata.get("job_title", ""),
-                category=metadata.get("category", ""),
-                match_score=career.get("score", 0),
+                job_id=job_id,
+                job_title=job_title or "직무 정보 없음",
+                category=category,
+                match_score=match_score,
                 required_skills=required_skills,
-                outlook=outlook
+                outlook=str(outlook or "")
             ))
 
             career_profiles.append({
-                "job_title": metadata.get("job_title", ""),
+                "job_title": job_title,
                 "required_skills": required_skills,
-                "outlook_scaffolding": outlook,
+                "outlook_scaffolding": str(outlook or ""),
                 "education": profile.get("education", []),
                 "certifications": profile.get("certifications", []),
             })
 
-        # 3. LLM 기반 역량 격차 분석
+        # 3. 규칙 기반 역량 격차 분석 (LLM 미사용)
         skill_gaps = _analyze_skill_gaps(
             current_skills=request.current_skills,
             recommended_careers=recommended_careers,
-            llm_service=llm_service,
+            llm_service=None,
             grade=request.grade,
             disability_type=student.disability_type,
         )
 
-        # 4. LLM 기반 커리어 경로 생성
+        # 4. 규칙 기반 커리어 경로 생성 (LLM 미사용)
         career_paths = _generate_career_paths(
             request=request,
             recommended_careers=recommended_careers,
-            llm_service=llm_service,
+            llm_service=None,
             disability_type=student.disability_type,
             career_profiles=career_profiles,
         )
@@ -556,6 +564,49 @@ def _extract_career_profile(content: str) -> Dict[str, Any]:
     }
 
 
+def _coerce_llm_string_list(raw: Any, fallback: Optional[List[str]] = None) -> List[str]:
+    """
+    로컬 LLM이 List[str] 대신 dict 리스트를 반환하는 경우가 있어 SkillGap 스키마용으로 정규화.
+    """
+    if raw is None:
+        return list(fallback or [])
+    if isinstance(raw, str):
+        return [raw.strip()] if raw.strip() else list(fallback or [])
+    if not isinstance(raw, list):
+        return list(fallback or [])
+
+    out: List[str] = []
+    for item in raw:
+        if isinstance(item, str):
+            if item.strip():
+                out.append(item.strip())
+            continue
+        if isinstance(item, dict):
+            name = (
+                item.get("skill_name")
+                or item.get("name")
+                or item.get("text")
+                or item.get("label")
+                or item.get("description")
+            )
+            level = item.get("level") or item.get("target_level") or item.get("수준")
+            if name is not None and str(name).strip():
+                line = str(name).strip()
+                if level is not None and level != "":
+                    line = f"{line} (관련 수준: {level})"
+                out.append(line)
+            else:
+                parts = [f"{k}: {v}" for k, v in item.items() if v is not None and str(v).strip()]
+                if parts:
+                    out.append("; ".join(parts))
+            continue
+        s = str(item).strip()
+        if s:
+            out.append(s)
+
+    return out if out else list(fallback or [])
+
+
 def _analyze_skill_gaps(
     current_skills: str,
     recommended_careers: List[RecommendedCareer],
@@ -563,12 +614,28 @@ def _analyze_skill_gaps(
     grade: Optional[str] = None,
     disability_type: Optional[str] = None,
 ) -> List[SkillGap]:
-    """LLM을 사용해 현재 역량과 목표 직업 요구 역량 간의 문맥적 격차를 분석합니다."""
+    """규칙 기반으로 현재 역량과 목표 직업 요구 역량 간의 격차를 분석합니다."""
     skill_gaps = []
-    try:
-        service = llm_service or LLMService()
-    except Exception:
-        service = None
+    service = None
+    if llm_service:
+        try:
+            service = llm_service
+        except Exception:
+            service = None
+
+    def _default_suggestions(gaps: List[str]) -> List[str]:
+        suggestions = []
+        for skill in gaps[:3]:
+            suggestions.append(f"'{skill}' 역량을 10~15분 단위 반복 과제로 나눠 연습합니다.")
+        suggestions.append("체크리스트 기반으로 과제 시작-중간-완료 단계를 시각화합니다.")
+        suggestions.append("주 1회 동일 과업 재수행으로 수행 정확도를 기록합니다.")
+        # 중복 제거
+        unique: List[str] = []
+        for s in suggestions:
+            if s not in unique:
+                unique.append(s)
+        return unique[:5]
+
     for career in recommended_careers[:3]:
         gap_result: Dict[str, Any] = {}
         if service:
@@ -584,24 +651,29 @@ def _analyze_skill_gaps(
             except Exception:
                 gap_result = {}
 
-        gap_skills = gap_result.get("gap_skills", [])
-        # Fallback: LLM 실패 시 단순 규칙 기반 gap 생성으로 API 500 방지
+        # Deterministic fallback / primary path
+        required_level = _coerce_llm_string_list(gap_result.get("required_level"), career.required_skills)
+        if not required_level:
+            required_level = career.required_skills[:6]
+
+        alignment = _compute_skill_alignment(current_skills, required_level)
+        current_level = alignment.get("matched_skills", [])[:6]
+        gap_skills = alignment.get("missing_skills", [])[:6]
         if not gap_skills:
-            gap_skills = career.required_skills[:5]
+            gap_skills = _coerce_llm_string_list(gap_result.get("gap_skills"), required_level[:4])
+
+        development_suggestions = _coerce_llm_string_list(
+            gap_result.get("development_suggestions"),
+            _default_suggestions(gap_skills),
+        )
 
         if gap_skills:
             skill_gaps.append(SkillGap(
                 job_title=career.job_title,
-                current_level=gap_result.get("current_level", []),
-                required_level=gap_result.get("required_level", career.required_skills),
+                current_level=current_level,
+                required_level=required_level,
                 gap_skills=gap_skills,
-                development_suggestions=gap_result.get(
-                    "development_suggestions",
-                    [
-                        "관찰 가능한 행동 단위로 목표를 쪼개서 연습합니다.",
-                        "시각/촉각 단서와 반복 루틴으로 요구 역량을 단계적으로 학습합니다.",
-                    ],
-                ),
+                development_suggestions=development_suggestions,
             ))
 
     return skill_gaps
@@ -614,14 +686,16 @@ def _generate_career_paths(
     disability_type: Optional[str] = None,
     career_profiles: Optional[List[Dict[str, Any]]] = None,
 ) -> List[CareerPath]:
-    """LLM을 사용해 outlook 기반 학생 맞춤 커리어 경로를 생성합니다."""
+    """규칙 기반으로 outlook 기반 학생 맞춤 커리어 경로를 생성합니다."""
     paths = []
 
     profile_map = {p.get("job_title", ""): p for p in (career_profiles or [])}
-    try:
-        service = llm_service or LLMService()
-    except Exception:
-        service = None
+    service = None
+    if llm_service:
+        try:
+            service = llm_service
+        except Exception:
+            service = None
 
     for career in recommended_careers[:3]:
         profile = profile_map.get(career.job_title, {})
@@ -654,19 +728,35 @@ def _generate_career_paths(
                 })
 
         if not normalized_stages:
+            top_required = ", ".join((career.required_skills or [])[:3]) or "기초 직무 역량"
             normalized_stages = [
                 {
                     "stage": "현재",
-                    "focus": request.current_skills,
-                    "description": "현재 역량을 기준으로 직무 적합도를 점검합니다."
-                }
+                    "focus": "현재 강점 파악",
+                    "description": f"현재 역량({request.current_skills})을 직무 요구 역량과 비교해 출발점을 정리합니다."
+                },
+                {
+                    "stage": "단기(1~3개월)",
+                    "focus": "핵심 기초 역량 강화",
+                    "description": f"{top_required} 중심의 반복 과제로 기본 수행 정확도를 높입니다."
+                },
+                {
+                    "stage": "중기(3~6개월)",
+                    "focus": "실습 기반 적용",
+                    "description": "체크리스트 기반 모의/현장 실습으로 작업 지속력과 독립 수행 비율을 높입니다."
+                },
+                {
+                    "stage": "장기(6개월+)",
+                    "focus": "직무 전환 및 유지",
+                    "description": "실제 업무 환경에서 역할을 확장하고 피드백 루프로 성과를 안정화합니다."
+                },
             ]
 
         path = CareerPath(
             current_learning=request.current_skills,
             target_career=career.job_title,
             stages=normalized_stages,
-            estimated_timeline=str(roadmap.get("estimated_timeline", "개별 평가 필요"))
+            estimated_timeline=str(roadmap.get("estimated_timeline", "6~12개월"))
         )
         paths.append(path)
 

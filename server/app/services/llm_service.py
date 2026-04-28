@@ -1,11 +1,14 @@
 """
 LLM Service for analyzing teacher descriptions and generating scaffolding recommendations.
-Uses Google Gemini models to process student descriptions and provide educational insights.
+Gemini-only implementation.
 """
 
 import json
 import logging
 import os
+import re
+import time
+import hashlib
 from typing import List, Dict, Any, Optional
 
 from google import genai
@@ -14,6 +17,37 @@ from google.genai import types
 from ..schemas.rag import LLMAnalysisResult, AchievementStandardReference
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_json_string_list(items: Any) -> List[str]:
+    """로컬 LLM이 문자열 리스트 대신 dict 등을 넣는 경우를 문자열로 평탄화."""
+    if items is None:
+        return []
+    if isinstance(items, str):
+        return [items.strip()] if items.strip() else []
+    if not isinstance(items, list):
+        return [str(items)] if str(items).strip() else []
+
+    out: List[str] = []
+    for item in items:
+        if isinstance(item, str):
+            if item.strip():
+                out.append(item.strip())
+        elif isinstance(item, dict):
+            name = item.get("skill_name") or item.get("name") or item.get("text") or item.get("gap")
+            level = item.get("level") or item.get("target_level")
+            if name is not None and str(name).strip():
+                line = str(name).strip()
+                if level is not None and str(level).strip():
+                    line = f"{line} ({level})"
+                out.append(line)
+            else:
+                out.append("; ".join(f"{k}: {v}" for k, v in item.items() if v is not None))
+        else:
+            s = str(item).strip()
+            if s:
+                out.append(s)
+    return out
 
 
 def _google_api_key() -> Optional[str]:
@@ -29,18 +63,22 @@ class LLMService:
         requested_model = model or os.getenv("GEMINI_CHAT_MODEL", "gemini-2.0-flash")
         self.model_name = requested_model
         self.fallback_models = [
-            "gemini-2.0-flash",
             "gemini-2.5-flash",
         ]
+
         self.temperature = temperature
         self.logger = logging.getLogger(__name__)
-        self.client: Optional[genai.Client] = None
+        try:
+            self.cache_ttl_sec = int(os.getenv("LLM_CACHE_TTL_SEC", "600"))
+        except ValueError:
+            self.cache_ttl_sec = 600
+        self._response_cache: Dict[str, Dict[str, Any]] = {}
         api_key = _google_api_key()
         if not api_key:
             raise ValueError(
                 "Gemini API key is required. Set GOOGLE_API_KEY or GEMINI_API_KEY."
             )
-        self.client = genai.Client(api_key=api_key)
+        self.client: Optional[genai.Client] = genai.Client(api_key=api_key)
 
     def analyze_student_description(
         self,
@@ -92,7 +130,7 @@ class LLMService:
         except Exception as e:
             self.logger.error(
                 "LLM analysis failed (%s): %s. "
-                "Likely causes: invalid API key, quota/permission issue, network timeout, or Gemini API error.",
+                "Likely causes: Gemini quota/network/model availability issue.",
                 e.__class__.__name__,
                 str(e),
             )
@@ -219,16 +257,19 @@ class LLMService:
             recommended_strategies = response_data.get('recommended_strategies', [])
             confidence_score = float(response_data.get('confidence_score', 0.5))
             analysis_summary = response_data.get('analysis_summary', '분석 완료')
+            if not isinstance(analysis_summary, str):
+                analysis_summary = str(analysis_summary) if analysis_summary is not None else "분석 완료"
 
             # Validate detected_level
             if detected_level not in ['high', 'medium', 'low']:
                 detected_level = 'medium'
 
-            # Ensure lists are actually lists
-            if not isinstance(learning_gaps, list):
-                learning_gaps = [str(learning_gaps)]
-            if not isinstance(recommended_strategies, list):
-                recommended_strategies = [str(recommended_strategies)]
+            learning_gaps = _coerce_json_string_list(learning_gaps)
+            recommended_strategies = _coerce_json_string_list(recommended_strategies)
+            if not learning_gaps:
+                learning_gaps = ["교사 설명만으로 세부 격차를 특정하기 어렵습니다."]
+            if not recommended_strategies:
+                recommended_strategies = ["단계별 지원과 시각 단서를 활용합니다."]
 
             # Clamp confidence score
             confidence_score = max(0.0, min(1.0, confidence_score))
@@ -259,6 +300,25 @@ class LLMService:
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
         return text
+
+    def _parse_json_with_salvage(self, raw_text: str) -> Dict[str, Any]:
+        """
+        Parse JSON robustly.
+        1) Parse as-is.
+        2) If failed, salvage first JSON object substring between first '{' and last '}'.
+        """
+        payload = self._extract_json_payload(raw_text)
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError:
+            start = payload.find("{")
+            end = payload.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                candidate = payload[start:end + 1]
+                # Remove trailing commas before ] or } that occasionally appear.
+                candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+                return json.loads(candidate)
+            raise
 
     def analyze_career_skill_gap(
         self,
@@ -317,7 +377,7 @@ class LLMService:
         except Exception as e:
             self.logger.error(
                 "Career skill-gap analysis failed (%s): %s. "
-                "Likely causes: invalid API key, quota/permission issue, network timeout, or Gemini API error.",
+                "Likely causes: Gemini quota/network/model availability issue.",
                 e.__class__.__name__,
                 str(e),
             )
@@ -379,13 +439,26 @@ class LLMService:
         except Exception as e:
             self.logger.error(
                 "Career path generation failed (%s): %s. "
-                "Likely causes: invalid API key, quota/permission issue, network timeout, or Gemini API error.",
+                "Likely causes: Gemini quota/network/model availability issue.",
                 e.__class__.__name__,
                 str(e),
             )
             raise
 
     def _call_json_model(self, prompt: str, system_instruction: str) -> Dict[str, Any]:
+        """Call Gemini model and parse a JSON object response."""
+        cache_key_source = f"{self.model_name}|{self.temperature}|{system_instruction}|{prompt}"
+        cache_key = hashlib.sha256(cache_key_source.encode("utf-8")).hexdigest()
+        now = time.time()
+        cached = self._response_cache.get(cache_key)
+        if cached and (now - cached.get("ts", 0) <= self.cache_ttl_sec):
+            return cached.get("data", {})
+
+        result = self._call_gemini_json_model(prompt, system_instruction)
+        self._response_cache[cache_key] = {"ts": now, "data": result}
+        return result
+
+    def _call_gemini_json_model(self, prompt: str, system_instruction: str) -> Dict[str, Any]:
         """Call Gemini model and parse a JSON object response."""
         if not self.client:
             raise ValueError("Gemini client is not initialized. Check API key settings.")
@@ -397,36 +470,54 @@ class LLMService:
 
         last_error: Optional[Exception] = None
         for model_name in candidate_models:
-            try:
-                response = self.client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        temperature=self.temperature,
-                        max_output_tokens=2000,
-                        response_mime_type="application/json",
-                    ),
-                )
-                result_text = response.text
-                if not result_text:
-                    raise ValueError("Empty response from Gemini model")
-                if model_name != self.model_name:
-                    self.logger.warning(
-                        "Gemini model '%s' unavailable. Using fallback model '%s'.",
-                        self.model_name,
-                        model_name,
+            for attempt_idx in range(2):
+                try:
+                    attempt_prompt = prompt
+                    if attempt_idx == 1:
+                        attempt_prompt = (
+                            f"{prompt}\n\n"
+                            "중요: 반드시 JSON 객체 1개만 출력하세요. "
+                            "설명 문장/마크다운/코드블록을 절대 출력하지 마세요."
+                        )
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=attempt_prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_instruction,
+                            temperature=self.temperature,
+                            max_output_tokens=2000,
+                            response_mime_type="application/json",
+                        ),
                     )
-                    self.model_name = model_name
-                return json.loads(self._extract_json_payload(result_text))
-            except Exception as e:
-                last_error = e
-                self.logger.warning(
-                    "Gemini generate_content failed with model '%s' (%s): %s",
-                    model_name,
-                    e.__class__.__name__,
-                    str(e),
-                )
+                    result_text = response.text
+                    if not result_text:
+                        raise ValueError("Empty response from Gemini model")
+                    if model_name != self.model_name:
+                        self.logger.warning(
+                            "Gemini model '%s' unavailable. Using fallback model '%s'.",
+                            self.model_name,
+                            model_name,
+                        )
+                        self.model_name = model_name
+                    return self._parse_json_with_salvage(result_text)
+                except json.JSONDecodeError as e:
+                    last_error = e
+                    self.logger.warning(
+                        "Gemini JSON parse failed with model '%s' (attempt %d/2): %s",
+                        model_name,
+                        attempt_idx + 1,
+                        str(e),
+                    )
+                    continue
+                except Exception as e:
+                    last_error = e
+                    self.logger.warning(
+                        "Gemini generate_content failed with model '%s' (%s): %s",
+                        model_name,
+                        e.__class__.__name__,
+                        str(e),
+                    )
+                    break
 
         self.logger.error(
             "Gemini generate_content failed for all candidate models %s. Last error (%s): %s. "

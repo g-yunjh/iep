@@ -13,6 +13,7 @@ langgraph
 
 # Database & Storage
 chromadb
+langchain-chroma
 SQLAlchemy
 psycopg2-binary
 
