@@ -5,8 +5,6 @@ Gemini-only implementation.
 
 import json
 import logging
-import os
-import re
 import time
 import hashlib
 from typing import List, Dict, Any, Optional
@@ -14,7 +12,9 @@ from typing import List, Dict, Any, Optional
 from google import genai
 from google.genai import types
 
+from ..core.config import settings
 from ..schemas.rag import LLMAnalysisResult, AchievementStandardReference
+from ..utils.json_utils import parse_json_with_salvage
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def _coerce_json_string_list(items: Any) -> List[str]:
 
 
 def _google_api_key() -> Optional[str]:
-    return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    return settings.resolved_google_api_key
 
 class LLMService:
     """
@@ -59,15 +59,12 @@ class LLMService:
     """
 
     def __init__(self, model: Optional[str] = None, temperature: float = 0.3):
-        requested_model = model or os.getenv("GEMINI_CHAT_MODEL", "gemini-2.0-flash")
+        requested_model = model or settings.gemini_chat_model
         self.model_name = requested_model
 
         self.temperature = temperature
         self.logger = logging.getLogger(__name__)
-        try:
-            self.cache_ttl_sec = int(os.getenv("LLM_CACHE_TTL_SEC", "600"))
-        except ValueError:
-            self.cache_ttl_sec = 600
+        self.cache_ttl_sec = settings.llm_cache_ttl_sec
         self._response_cache: Dict[str, Dict[str, Any]] = {}
         api_key = _google_api_key()
         if not api_key:
@@ -284,38 +281,6 @@ class LLMService:
                 f"Failed to parse Gemini JSON response: {e}"
             )
 
-    def _extract_json_payload(self, raw_text: str) -> str:
-        """Extract JSON payload from model output, tolerating fenced blocks."""
-        text = raw_text.strip()
-        if text.startswith("```"):
-            lines = text.splitlines()
-            # Remove opening/closing fences if present.
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            text = "\n".join(lines).strip()
-        return text
-
-    def _parse_json_with_salvage(self, raw_text: str) -> Dict[str, Any]:
-        """
-        Parse JSON robustly.
-        1) Parse as-is.
-        2) If failed, salvage first JSON object substring between first '{' and last '}'.
-        """
-        payload = self._extract_json_payload(raw_text)
-        try:
-            return json.loads(payload)
-        except json.JSONDecodeError:
-            start = payload.find("{")
-            end = payload.rfind("}")
-            if start != -1 and end != -1 and end > start:
-                candidate = payload[start:end + 1]
-                # Remove trailing commas before ] or } that occasionally appear.
-                candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-                return json.loads(candidate)
-            raise
-
     def analyze_career_skill_gap(
         self,
         current_skills: str,
@@ -482,7 +447,7 @@ class LLMService:
                 result_text = response.text
                 if not result_text:
                     raise ValueError("Empty response from Gemini model")
-                return self._parse_json_with_salvage(result_text)
+                return parse_json_with_salvage(result_text)
             except json.JSONDecodeError as e:
                 last_error = e
                 self.logger.warning(

@@ -5,7 +5,6 @@ Supports multiple collections (curriculum, career) for different RAG use cases.
 
 import logging
 import math
-import os
 import shutil
 import time
 from typing import List, Dict, Any, Optional
@@ -15,6 +14,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 
+from ..core.config import settings
 from .data_loader import DataLoader
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class RAGService:
             else default_persist_dir.resolve()
         )
         self.collection_name = collection_name
-        embedding_model = os.getenv("LOCAL_EMBEDDING_MODEL", "jhgan/ko-sroberta-multitask")
+        embedding_model = settings.local_embedding_model
         self.embedding_model = embedding_model
         self.embeddings = self._create_embeddings(embedding_model)
         self.vectorstore: Optional[Chroma] = None

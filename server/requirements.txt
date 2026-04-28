@@ -19,7 +19,7 @@ psycopg2-binary
 
 # Utilities & Tools
 pydantic >= 2.0.0
-requests
+pydantic-settings
 httpx
 langsmith
 tenacity

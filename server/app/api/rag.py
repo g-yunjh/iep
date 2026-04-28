@@ -4,8 +4,8 @@ Provides RAG-based recommendations for scaffolding and career guidance.
 """
 
 import json
+import logging
 import math
-import os
 import re
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Any, Dict, List, Optional
@@ -27,10 +27,12 @@ from app.schemas.rag import (
 from app.services.rag_orchestrator import RAGOrchestrator
 from app.services.rag_service import RAGService
 from app.services.llm_service import LLMService
+from app.core.config import settings
 from app.db.database import get_db
 from app.db.models import Feedback, Student
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _to_json_compatible(model_obj) -> Dict:
@@ -206,6 +208,7 @@ async def get_scaffolding_recommendation(
         return analysis_result.scaffolding_recommendation
 
     except Exception as e:
+        logger.exception("스캐폴딩 추천 생성 실패: %s", str(e))
         raise HTTPException(status_code=500, detail=f"스캐폴딩 추천 생성 실패: {str(e)}")
 
 
@@ -236,6 +239,7 @@ async def search_curriculum(
             "count": len(results)
         }
     except Exception as e:
+        logger.exception("커리큘럼 검색 실패: %s", str(e))
         raise HTTPException(status_code=500, detail=f"검색 실패: {str(e)}")
 
 
@@ -344,6 +348,7 @@ async def get_career_recommendation(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("진로 추천 생성 실패: %s", str(e))
         raise HTTPException(status_code=500, detail=f"진로 추천 생성 실패: {str(e)}")
 
 
@@ -371,7 +376,7 @@ async def search_careers(
         constraints = _extract_query_constraints(query)
         effective_current_skills = (
             (current_skills or "").strip()
-            or os.getenv("CAREER_SEARCH_DEFAULT_CURRENT_SKILLS", "").strip()
+            or settings.career_search_default_current_skills.strip()
         )
         for res in results:
             content = res.get("content", "")
@@ -431,6 +436,7 @@ async def search_careers(
         }
 
     except Exception as e:
+        logger.exception("직업 검색/역량 분석 실패: %s", str(e))
         # 상세한 에러 메시지와 함께 예외 처리
         raise HTTPException(
             status_code=500, 
@@ -475,6 +481,7 @@ async def initialize_vector_stores(
                 "message": "전체 벡터 스토어 초기화 완료"
             }
     except Exception as e:
+        logger.exception("벡터 스토어 초기화 실패: %s", str(e))
         raise HTTPException(status_code=500, detail=f"초기화 실패: {str(e)}")
 
 
@@ -514,6 +521,7 @@ async def get_vector_store_status(data_type: Optional[str] = None):
                 last_updated=None
             )
     except Exception as e:
+        logger.exception("벡터 스토어 상태 조회 실패: %s", str(e))
         raise HTTPException(status_code=500, detail=f"상태 조회 실패: {str(e)}")
 
 

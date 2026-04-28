@@ -30,6 +30,14 @@ class StudentUpdate(BaseModel):
     additional_diagnoses: Optional[str] = None
     behavioral_traits: Optional[str] = None
 
+
+class SchoolLifeResponse(BaseModel):
+    lunch_menu: str
+    dismissal_time: str
+    academic_calendar: str
+    today_timetable: List[str]
+
+
 class FeedbackBase(BaseModel):
     student_id: Optional[int] = None
     performance: str

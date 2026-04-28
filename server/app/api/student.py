@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, List
@@ -9,10 +10,11 @@ from app.db import models
 from app.db.database import get_db
 from app.db.models import Feedback
 from app.schemas.rag import StudentProgressResponse
-from app.schemas.student import Student, StudentUpdate
+from app.schemas.student import SchoolLifeResponse, Student, StudentUpdate
 import app.services.neis_service as neis_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _normalize_json_field(value):
@@ -25,7 +27,7 @@ def _normalize_json_field(value):
     return value
 
 
-@router.get("/school-life", response_model=Dict)
+@router.get("/school-life", response_model=SchoolLifeResponse)
 async def get_school_life():
     """
     나이스 Open API 실시간 연동 (급식, 시간표, 학사일정)
@@ -33,13 +35,13 @@ async def get_school_life():
     today = datetime.now().strftime("%Y%m%d")
     
     # 1. 급식 정보 (중식)
-    lunch_menu = neis_service.get_neis_meal(today)
+    lunch_menu = await neis_service.get_neis_meal(today)
     
     # 2. 학사 일정 (오늘의 행사)
-    today_event = neis_service.get_neis_schedule(today)
+    today_event = await neis_service.get_neis_schedule(today)
     
     # 3. 시간표 및 계산된 하교 시간
-    timetable, dismissal = neis_service.get_neis_timetable(today, grade="1", class_nm="1")
+    timetable, dismissal = await neis_service.get_neis_timetable(today, grade="1", class_nm="1")
 
     return {
         "lunch_menu": lunch_menu,
@@ -113,6 +115,7 @@ async def get_student_progress(db: Session = Depends(get_db)):
             progress_summary=_generate_progress_summary(feedback_list),
         )
     except Exception as e:
+        logger.exception("학생 진행 상황 조회 실패: %s", str(e))
         raise HTTPException(status_code=500, detail=f"학생 진행 상황 조회 실패: {str(e)}")
 
 
