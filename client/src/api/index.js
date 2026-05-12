@@ -33,11 +33,10 @@ const sampleProgress = {
 }
 
 const sampleSchoolLife = {
-  meal_info: {
-    lunch: '된장국, 닭갈비, 계절나물, 밥',
-    snack: '요거트, 사과',
-  },
+  lunch_menu: '된장국, 닭갈비, 계절나물, 밥',
   dismissal_time: '15:30',
+  academic_calendar: '일정 없음',
+  today_timetable: ['국어', '수학', '미술'],
   tomorrow_prep: ['체육복', '색연필', '국어 공책'],
 }
 
@@ -56,6 +55,24 @@ const sampleScaffolding = {
       },
     ],
   },
+  achievement_standard: {
+    standard_id: '3수학01-01',
+    grade: '초3',
+    subject: '수학',
+    disability_type: '자폐 스펙트럼',
+    standard_text: '두 자리 수의 덧셈과 뺄셈 과정을 시각 자료와 함께 설명할 수 있다.',
+    diagnostic_criteria: ['시각 자료를 활용한 연산 과정 설명', '단계별 도움 요청'],
+    activities: ['수 모형으로 받아올림 설명하기', '그림 단서로 풀이 순서 정리하기'],
+    scaffolding_levels: { high: '독립 수행', medium: '언어·시각 단서', low: '모델링 제공' },
+    scaffolding_bank_general: ['한 단계 지시', '즉각 강화', '시각 일정표'],
+    scaffolding_bank_disability_specific: { '자폐 스펙트럼': '예측 가능한 순서와 그림 단서를 먼저 제공합니다.' },
+    relevance_score: 0.82,
+  },
+  related_achievement_standards: [
+    '국어: 핵심 낱말의 의미를 문맥에서 파악한다.',
+    '수학: 수 모형을 활용해 연산 과정을 나타낸다.',
+  ],
+  additional_notes: '수업 적용 후 반응을 피드백 기록에 남기면 다음 추천에 반영됩니다.',
 }
 
 const sampleCurriculumResults = {
@@ -103,16 +120,66 @@ const sampleCareerSearch = {
   ],
 }
 
+const sampleCareerRecommendation = {
+  current_skills: '손작업과 순서 기억이 안정적이며 시각 자료를 활용한 활동에 오래 참여합니다.',
+  recommended_careers: [
+    {
+      job_id: 'sample-baker',
+      job_title: '제과제빵사',
+      category: '음식 서비스',
+      match_score: 0.82,
+      required_skills: ['손의 정교함', '순서 기억', '위생 절차'],
+      outlook: '반복 루틴과 손작업 강점을 작은 체험으로 연결할 수 있습니다.',
+    },
+  ],
+  skill_gaps: [
+    {
+      job_title: '제과제빵사',
+      current_level: ['손작업', '순서 기억'],
+      required_level: ['도구 활용', '작업 절차 언어화'],
+      gap_skills: ['도구 활용', '작업 절차 언어화'],
+      development_suggestions: ['도구 이름 맞히기', '작업 순서를 그림 카드로 정리하기'],
+    },
+  ],
+  career_paths: [
+    {
+      current_learning: '손작업과 순서 기억 활동',
+      target_career: '제과제빵사',
+      estimated_timeline: '장기 탐색',
+      stages: [
+        { stage: '현재', description: '손작업과 순서 기억 활동' },
+        { stage: '단기', description: '도구 사용과 작업 순서 연습' },
+        { stage: '중기', description: '반복 작업 루틴과 위생 절차' },
+        { stage: '장기', description: '직무 체험과 현장 적응' },
+      ],
+    },
+  ],
+}
+
 function withFallback(requestFn, fallbackData) {
   return requestFn().catch(() => fallbackData)
 }
 
+function toCurriculumSubjectCode(subject) {
+  const map = {
+    수학: 'math',
+    국어: 'korean',
+  }
+  return map[subject] || subject
+}
+
+function toGradeCode(grade) {
+  if (!grade) return grade
+  const match = String(grade).match(/[1-6]/)
+  return match ? match[0] : grade
+}
+
 export function getStudent() {
-  return withFallback(async () => (await apiClient.get('/student')).data, sampleStudent)
+  return withFallback(async () => (await apiClient.get('/student/')).data, sampleStudent)
 }
 
 export function patchStudentTraits(payload) {
-  return withFallback(async () => (await apiClient.patch('/student/traits', payload)).data, {
+  return withFallback(async () => (await apiClient.patch('/student/', payload)).data, {
     ...sampleStudent,
     ...payload,
   })
@@ -130,16 +197,28 @@ export function getScaffoldingRecommendation(payload) {
   return withFallback(async () => (await apiClient.post('/rag/scaffolding-recommendation', payload)).data, sampleScaffolding)
 }
 
-export function searchCurriculum(query) {
+export function searchCurriculum(query, params = {}) {
+  const normalizedParams = {
+    ...params,
+    subject: params.subject ? toCurriculumSubjectCode(params.subject) : params.subject,
+    grade: params.grade ? toGradeCode(params.grade) : params.grade,
+  }
   return withFallback(
-    async () => (await apiClient.get('/rag/curriculum-search', { params: { query } })).data,
+    async () => (await apiClient.get('/rag/curriculum-search', { params: { query, ...normalizedParams } })).data,
     { ...sampleCurriculumResults, query },
   )
 }
 
-export function searchCareer(query) {
+export function searchCareer(query, params = {}) {
   return withFallback(
-    async () => (await apiClient.get('/rag/career-search', { params: { query } })).data,
+    async () => (await apiClient.get('/rag/career-search', { params: { query, ...params } })).data,
     { ...sampleCareerSearch, query },
+  )
+}
+
+export function getCareerRecommendation(payload) {
+  return withFallback(
+    async () => (await apiClient.post('/rag/career-recommendation', payload)).data,
+    { ...sampleCareerRecommendation, current_skills: payload?.current_skills || sampleCareerRecommendation.current_skills },
   )
 }

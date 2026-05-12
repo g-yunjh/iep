@@ -1,58 +1,173 @@
 <template>
-  <div class="space-y-6">
-    <StudentProfileHeader :student="studentStore.student" />
+  <div class="page-grid">
+    <aside class="column-stack">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Strengths</p>
+            <h2 class="panel-title">강점 입력</h2>
+            <p class="panel-subtitle">아이의 좋아하는 활동을 부담 없는 진로 힌트로 바꿉니다.</p>
+          </div>
+          <div class="panel-icon">
+            <HeartHandshake />
+          </div>
+        </div>
 
-    <article class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-      <h3 class="text-lg font-semibold text-slate-800 mb-3">미래 진로 탐색</h3>
-      <div class="flex gap-2">
-        <input
-          v-model="careerInterest"
-          type="text"
-          class="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-          placeholder="관심 분야를 입력하세요."
-        />
-        <button
-          class="px-4 py-2 rounded-xl bg-slate-800 text-white text-sm hover:bg-slate-900"
-          @click="onSearchCareer"
-        >
-          탐색
-        </button>
-      </div>
+        <label class="spaced">
+          <span class="section-label">현재 보이는 강점</span>
+          <textarea v-model="currentSkills" class="textarea-like spaced-sm" rows="6" />
+        </label>
 
-      <ul class="mt-4 space-y-3">
-        <li
-          v-for="career in careerResults"
-          :key="career.job_title"
-          class="rounded-xl border border-slate-200 p-3"
-        >
-          <p class="text-sm font-semibold text-slate-800">{{ career.job_title }}</p>
-          <p class="text-xs text-slate-500 mt-1">필요 역량: {{ (career.required_skills || []).join(', ') }}</p>
-          <p class="text-xs text-rose-600 mt-1">
-            Skill Gap: {{ (career.skill_gap?.gap_skills || []).join(', ') || '없음' }}
-          </p>
-        </li>
-      </ul>
-    </article>
+        <label class="spaced-sm">
+          <span class="section-label">좋아하는 활동</span>
+          <input v-model="interests" class="input-like spaced-sm" type="text" />
+        </label>
+
+        <div class="button-row spaced">
+          <button class="btn" type="button" :disabled="loading" @click="recommendCareer">
+            {{ loading ? '탐색 중' : '진로 힌트 보기' }}
+          </button>
+        </div>
+      </section>
+
+      <section class="panel dark">
+        <p class="eyebrow">Parent Tone</p>
+        <h2 class="panel-title">대화 중심</h2>
+        <p class="panel-subtitle">
+          직업을 빨리 정하는 화면이 아니라, 아이의 강점을 알아차리고 대화하는 화면입니다.
+        </p>
+      </section>
+    </aside>
+
+    <main class="column-stack">
+      <section class="panel elevated">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Career Hints</p>
+            <h2 class="panel-title">추천 진로 후보</h2>
+            <p class="panel-subtitle">백엔드 진로 추천 결과를 학부모가 읽기 쉬운 카드로 표시합니다.</p>
+          </div>
+          <span class="badge primary">POST /rag/career-recommendation</span>
+        </div>
+
+        <div class="list-stack spaced">
+          <article v-for="career in recommendedCareers" :key="career.job_title" class="career-result">
+            <div>
+              <strong>{{ career.job_title }}</strong>
+              <p>{{ career.outlook || `필요 역량: ${listText(career.required_skills)}` }}</p>
+            </div>
+            <span class="mono">{{ percentText(career.match_score ?? career.score) }}</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow">Conversation</p>
+        <h2 class="panel-title">오늘 해볼 대화</h2>
+        <div class="strategy-grid spaced">
+          <article v-for="sentence in conversationPrompts" :key="sentence" class="strategy-card">
+            <strong>{{ sentence }}</strong>
+            <p>진로 이름보다 아이가 편했던 과정과 강점을 먼저 묻는 문장입니다.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <aside class="column-stack">
+      <section class="panel">
+        <p class="eyebrow">Skill Growth</p>
+        <h2 class="panel-title">키우면 좋은 부분</h2>
+        <div class="list-stack spaced">
+          <div v-for="gap in skillGaps" :key="gap.job_title || gap" class="mini-card">
+            <strong>{{ gap.job_title || '역량' }}</strong>
+            <p>{{ listText(gap.gap_skills || [gap]) }}</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow">Small Path</p>
+        <h2 class="panel-title">작은 단계</h2>
+        <div v-if="pathStages.length" class="list-stack spaced">
+          <div
+            v-for="(stage, index) in pathStages"
+            :key="`${stage.stage}-${stage.description}`"
+            class="path-stage parent-path-stage"
+          >
+            <span class="step-dot">{{ index + 1 }}</span>
+            <strong>{{ stage.stage }}</strong>
+            <p>{{ stage.description }}</p>
+          </div>
+        </div>
+        <div v-else class="empty-state spaced">
+          <strong>경로 대기</strong>
+          <p>진로 힌트를 실행하면 작은 단계가 여기에 표시됩니다.</p>
+        </div>
+      </section>
+    </aside>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
-import StudentProfileHeader from '../../components/StudentProfileHeader.vue'
-import { searchCareer } from '../../api'
+import { computed, onMounted, ref } from 'vue'
+import { HeartHandshake } from 'lucide-vue-next'
+import { getCareerRecommendation, searchCareer } from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
-const careerInterest = ref('')
-const careerResults = ref([])
 
-async function onSearchCareer() {
-  const result = await searchCareer(careerInterest.value || '창작 활동과 손작업')
-  careerResults.value = result.results || []
+const loading = ref(false)
+const currentSkills = ref('손작업과 순서 기억이 안정적이고, 그림 자료를 보면 활동을 오래 지속합니다.')
+const interests = ref('요리, 만들기, 정리')
+const careerRecommendation = ref(null)
+const searchResults = ref([])
+
+const recommendedCareers = computed(() =>
+  careerRecommendation.value?.recommended_careers?.length
+    ? careerRecommendation.value.recommended_careers
+    : searchResults.value.slice(0, 3),
+)
+
+const skillGaps = computed(() =>
+  careerRecommendation.value?.skill_gaps?.length
+    ? careerRecommendation.value.skill_gaps.slice(0, 3)
+    : ['도구 이름 익히기', '작업 순서 말하기', '도움 요청하기'],
+)
+
+const pathStages = computed(() => careerRecommendation.value?.career_paths?.[0]?.stages || [])
+
+const conversationPrompts = [
+  '오늘 어떤 순서로 했을 때 편했어?',
+  '그림을 보고 하니까 뭐가 쉬웠어?',
+  '다음에는 어떤 도구를 써보고 싶어?',
+  '도움이 필요할 때 어떤 말로 알려줄까?',
+]
+
+function listText(items = []) {
+  return items.length ? items.slice(0, 4).join(', ') : '정보 없음'
+}
+
+function percentText(score) {
+  if (typeof score !== 'number') return '-'
+  return `${Math.round(score * 100)}%`
+}
+
+async function recommendCareer() {
+  loading.value = true
+  try {
+    careerRecommendation.value = await getCareerRecommendation({
+      current_skills: currentSkills.value,
+      grade: '초등학교 3학년',
+      disability_type: studentStore.student?.disability_type || undefined,
+      interests: interests.value.split(',').map((item) => item.trim()).filter(Boolean),
+    })
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(async () => {
-  const result = await searchCareer('시각 활동과 의사소통')
-  careerResults.value = result.results || []
+  const response = await searchCareer(currentSkills.value, { current_skills: currentSkills.value, k: 3 })
+  searchResults.value = response.results || []
 })
 </script>

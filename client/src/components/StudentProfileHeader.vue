@@ -1,17 +1,25 @@
 <template>
-  <section class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-    <div class="flex flex-wrap items-start justify-between gap-4">
+  <section class="rounded-[24px] border border-white/80 bg-white/90 p-5 shadow-sm">
+    <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
       <div>
-        <p class="text-sm text-slate-500">단일 학생 프로필</p>
-        <h2 class="text-2xl font-bold text-slate-800 mt-1">{{ student?.name || '나의 아이' }}</h2>
+        <p class="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Student Profile</p>
+        <h2 class="mt-2 text-2xl font-black tracking-normal text-slate-950">
+          {{ student?.name || '나의 아이' }}
+        </h2>
+        <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+          {{ student?.current_level || '현재 수준을 입력하면 추천과 요약이 더 정확해집니다.' }}
+        </p>
       </div>
-      <div class="flex flex-wrap gap-2">
-        <span class="px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold">
-          현재 수준: {{ student?.current_level || '-' }}
-        </span>
-        <span class="px-3 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold">
-          행동 특성: {{ student?.behavioral_traits || '-' }}
-        </span>
+
+      <div class="grid gap-2 sm:grid-cols-2 lg:min-w-[420px]">
+        <div class="rounded-[16px] border border-slate-100 bg-slate-50 p-3">
+          <p class="text-xs font-semibold text-slate-400">장애 유형</p>
+          <p class="mt-1 text-sm font-bold text-slate-800">{{ student?.disability_type || '-' }}</p>
+        </div>
+        <div class="rounded-[16px] border border-slate-100 bg-slate-50 p-3">
+          <p class="text-xs font-semibold text-slate-400">행동 특성</p>
+          <p class="mt-1 text-sm font-bold text-slate-800">{{ student?.behavioral_traits || '-' }}</p>
+        </div>
       </div>
     </div>
   </section>
