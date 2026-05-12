@@ -99,18 +99,6 @@ VITE_API_BASE_URL=http://localhost:8000
 * 프론트엔드 상세 설명: `client/README.md`
 * 백엔드 상세 설명: `server/README.md`
 
-## 업로드 제외 항목
-
-아래 항목은 로컬 실행 중 생성되거나 민감 정보가 포함될 수 있으므로 GitHub에 업로드하지 않습니다.
-
-* `client/node_modules/`
-* `client/dist/`
-* `server/venv/`
-* `server/.venv/`
-* `server/.env`
-* `server/vector_store/`
-* `server/*.db`
-* `.DS_Store`
 
 ## 브랜치 작업 안내
 
