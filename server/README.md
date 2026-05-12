@@ -24,7 +24,7 @@ pip install -r requirements.txt
     * `GOOGLE_API_KEY` (또는 `GEMINI_API_KEY`): [Google AI Studio](https://aistudio.google.com/apikey)에서 발급한 Gemini API 키
     * `DATABASE_URL`: PostgreSQL 및 벡터 지식 베이스 접속 정보
 * **선택 항목**:
-    * `GEMINI_CHAT_MODEL`: 대화·분석용 모델 (기본값 `gemini-1.5-flash`)
+    * `GEMINI_CHAT_MODEL`: 대화·분석용 모델 (기본값 `gemini-2.0-flash`)
     * `GEMINI_EMBEDDING_MODEL`: 임베딩 모델 (기본값 `models/text-embedding-004`)
 * **벡터 스토어 재구축**: 이전에 OpenAI 임베딩으로 만든 Chroma 데이터는 차원이 달라 호환되지 않습니다. Gemini 전환 후에는 RAG 초기화 API에서 `force_recreate=true`로 스토어를 다시 만들어야 합니다.
 
@@ -39,3 +39,30 @@ uvicorn app.main:app --reload
 * **app/services**: RAG 엔진 및 LLM 프롬프트 로직 배치
 * **app/api**: IEP 어시스턴트 및 가이드 생성 엔드포인트 정의
 * **data**: 공공데이터 포털 기반 성취기준 및 직업백과 데이터 저장
+
+### 5. 서버 수정사항 요약
+
+이번 작업에서는 프론트엔드 연동과 RAG 추천 기능에서 사용할 수 있도록 `server` 폴더 내 데이터 및 API 구조를 보강했습니다.
+
+* **수학 성취기준 데이터 추가**
+    * `server/data/curriculum/math/` 경로에 수학 성취기준 데이터를 영역별로 분리하여 정리했습니다.
+    * 영역은 `수와 연산`, `도형`, `측정`, `규칙성`, `자료와 가능성` 기준으로 구성했습니다.
+    * 각 JSON 파일은 기존 `example.jsonc` 형식을 유지하여 RAG 검색 및 추천 로직에서 활용할 수 있도록 정리했습니다.
+
+* **국어 성취기준 데이터 추가**
+    * `server/data/curriculum/korean/` 경로에 국어 성취기준 데이터를 추가했습니다.
+    * `듣기·말하기`, `읽기`, `쓰기` 영역을 분리하여 저장했습니다.
+    * 수학 데이터와 동일한 구조를 사용해 과목별 성취기준 검색 방식이 일관되도록 구성했습니다.
+
+* **직업 추천 데이터 추가**
+    * `server/data/careers/` 경로에 직업 데이터 배치 파일을 추가했습니다.
+    * 학생의 현재 역량과 특성을 기반으로 진로 추천 및 역량 차이 분석에 활용할 수 있도록 구성했습니다.
+
+* **RAG 검색 및 추천 API 보강**
+    * 성취기준 검색, 스캐폴딩 추천, 진로 추천 기능에서 과목별·영역별 데이터를 참조할 수 있도록 서버 데이터 구조를 정리했습니다.
+    * 프론트엔드의 교사용/학부모용 대시보드에서 호출하는 API 응답 구조와 맞춰 사용할 수 있도록 유지했습니다.
+
+* **민감 정보 및 로컬 파일 제외**
+    * 실제 API 키가 포함된 `.env` 파일, SQLite DB 파일, `vector_store`, 가상환경 폴더는 업로드 대상에서 제외합니다.
+    * API 키는 `.env.example` 또는 README 안내를 참고해 각자 로컬에서 설정해야 합니다.
+
