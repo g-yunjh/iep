@@ -1,31 +1,38 @@
-# OS
+# OS / system files
 .DS_Store
 Thumbs.db
 
-# Frontend (Vue.js)
+# Frontend dependencies and build output
 client/node_modules/
 client/dist/
+client/.env
 client/.env.local
 client/.env.*.local
 
-# Backend (Python/FastAPI)
+# Backend virtual environments and Python cache
 **/__pycache__/
 **/*.py[cod]
 **/*$py.class
+server/.venv/
 server/venv/
-server/.env
+server/env/
 
-# Vector Store data
+# Environment variables / secrets
+.env
+*.env
+!*.env.example
+server/.env
+server/무제.env
+
+# RAG vector store generated locally
 server/vector_store/
 
-# Database (SQLite)
+# Local databases
 server/*.db
 server/*.db-journal
+server/*.sqlite
+server/*.sqlite3
 
-# Data (Public Data)
-server/data/*.json
-!server/data/sample.json
-
-# IDE
+# IDE / editor settings
 .vscode/
 .idea/
