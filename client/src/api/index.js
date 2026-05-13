@@ -7,7 +7,7 @@ const apiClient = axios.create({
 
 const sampleStudent = {
   id: 1,
-  name: '나의 아이',
+  name: '이지훈',
   disability_type: '자폐 스펙트럼',
   additional_diagnoses: 'ADHD',
   current_level: '초등 3학년 수준 읽기/쓰기 보조 필요',

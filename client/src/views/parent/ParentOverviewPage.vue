@@ -25,7 +25,7 @@
 
       <section class="panel">
         <p class="eyebrow">Child Profile</p>
-        <h2 class="panel-title">{{ studentStore.student?.name || '나의 아이' }}</h2>
+        <h2 class="panel-title">{{ studentStore.student?.name || '이지훈' }}</h2>
         <div class="list-stack spaced">
           <div v-for="row in profileRows" :key="row.label" class="card-row">
             <strong>{{ row.label }}</strong>
