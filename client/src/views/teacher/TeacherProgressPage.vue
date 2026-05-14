@@ -23,10 +23,10 @@
       </section>
 
       <section class="panel dark">
-        <p class="eyebrow">Stored By Backend</p>
+        <p class="eyebrow">Stored in Database</p>
         <h2 class="panel-title">기록 출처</h2>
         <p class="panel-subtitle">
-          스캐폴딩 추천을 실행하면 서버가 Feedback 테이블에 관찰, 분석, 추천 결과를 저장합니다.
+          스캐폴딩 추천을 실행하면 데이터 베이스에 관찰 기록 및 추천 활동이 저장됩니다. 이 내역들은 추후 스캐폴딩 제공에 반영됩니다.
         </p>
       </section>
     </aside>
