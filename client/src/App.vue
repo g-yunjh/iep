@@ -118,7 +118,7 @@ const headers = {
   '/teacher/overview': {
     eyebrow: '교사용 워크벤치',
     title: '대시보드',
-    copy: '관찰 기록을 AI 추천으로 바꾸고, 근거 성취기준과 피드백 이력을 바로 확인합니다.',
+    copy: '관찰 기록을 바탕으로 한 AI 스캐폴딩 추천과 근거 기준, 학생 성장 흐름을 한눈에 확인합니다.',
     search: '학생, 성취기준, 피드백 검색',
     cta: '추천 작성',
     ctaTo: '/teacher/scaffolding',

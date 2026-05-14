@@ -5,8 +5,8 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Today</p>
-            <h2 class="panel-title">오늘 학교생활</h2>
-            <p class="panel-subtitle">학교에서 받은 기본 정보를 집에서 보기 좋게 정리했습니다.</p>
+            <h2 class="panel-title">오늘의 학교생활</h2>
+            <p class="panel-subtitle">NEIS API를 연결하여 오늘의 학교일정을 보여줍니다.</p>
           </div>
           <div class="panel-icon">
             <CalendarDays />
@@ -21,17 +21,6 @@
         </div>
 
         <RouterLink to="/parent/school" class="btn ghost spaced-sm">학교생활 상세</RouterLink>
-      </section>
-
-      <section class="panel">
-        <p class="eyebrow">Child Profile</p>
-        <h2 class="panel-title">{{ studentStore.student?.name || '이지훈' }}</h2>
-        <div class="list-stack spaced">
-          <div v-for="row in profileRows" :key="row.label" class="card-row">
-            <strong>{{ row.label }}</strong>
-            <span>{{ row.value }}</span>
-          </div>
-        </div>
       </section>
     </aside>
 
