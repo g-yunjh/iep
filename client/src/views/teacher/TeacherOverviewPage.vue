@@ -4,9 +4,9 @@
       <section class="panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Student Context</p>
+            <p class="eyebrow">Student Profile</p>
             <h2 class="panel-title">{{ studentName }}</h2>
-            <p class="panel-subtitle">추천 생성에 반영되는 학생 기본 맥락입니다.</p>
+            <p class="panel-subtitle">AI가 답변 생성시 학생의 기본 특성을 반영합니다.</p>
           </div>
           <div class="panel-icon">
             <UserRoundCheck />
@@ -24,25 +24,6 @@
       </section>
 
       <section class="panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">School Feed</p>
-            <h2 class="panel-title">오늘 학교 정보</h2>
-          </div>
-          <div class="panel-icon">
-            <CalendarDays />
-          </div>
-        </div>
-
-        <div class="list-stack spaced">
-          <div v-for="item in schoolCards" :key="item.label" class="mini-card">
-            <strong>{{ item.label }}</strong>
-            <p>{{ item.value }}</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
         <p class="eyebrow">Recent Flow</p>
         <h2 class="panel-title">최근 변화</h2>
         <p class="panel-subtitle">{{ progressSummary }}</p>
@@ -55,6 +36,35 @@
           </div>
         </div>
       </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Recent Feedback</p>
+            <h2 class="panel-title">최근 피드백</h2>
+          </div>
+        </div>
+        <div class="list-stack spaced">
+          <article
+            v-for="feedback in feedbackPreview"
+            :key="feedback.id"
+            class="timeline-row feedback-card rounded-lg border border-[var(--color-border)] p-3"
+          >
+            <div class="flex items-center gap-3">
+              <small class="whitespace-nowrap text-[0.75rem] leading-none text-[var(--color-text-secondary)]">
+                {{ formatDate(feedback.created_at) }}
+              </small>
+              <span class="badge soft shrink-0">{{ levelLabel(feedback.llm_analysis?.detected_level) }}</span>
+            </div>
+            <strong
+              class="feedback-summary min-w-0 text-sm font-semibold leading-snug text-[var(--color-text)]"
+              :title="feedback.teacher_description || feedback.performance || '기록 내용 없음'"
+            >
+              {{ feedback.teacher_description || feedback.performance || '기록 내용 없음' }}
+            </strong>
+          </article>
+        </div>
+      </section>
     </aside>
 
     <main class="column-stack">
@@ -63,21 +73,9 @@
           <div>
             <p class="eyebrow">AI Scaffolding</p>
             <h2 class="panel-title">관찰 기록을 수업 전략으로 전환</h2>
-            <p class="panel-subtitle">백엔드의 RAG 스캐폴딩 추천 API와 바로 연결됩니다.</p>
+            <p class="panel-subtitle">학생에 대한 관찰 기록을 바탕으로 AI가 학생 맞춤의 스캐폴딩을 제공합니다.</p>
           </div>
           <span class="badge primary">Live API</span>
-        </div>
-
-        <div class="chip-row spaced">
-          <button
-            v-for="subject in subjects"
-            :key="subject"
-            type="button"
-            :class="['chip', selectedSubject === subject && 'active']"
-            @click="selectedSubject = subject"
-          >
-            {{ subject }}
-          </button>
         </div>
 
         <textarea
@@ -87,62 +85,95 @@
           placeholder="수업 중 관찰한 행동, 반응한 지원, 어려웠던 조건을 짧게 입력하세요."
         />
 
+        <div class="mini-grid spaced-sm">
+          <label>
+            <span class="section-label">학년</span>
+            <input v-model="recommendationForm.grade" class="input-like spaced-sm" type="text" />
+          </label>
+          <label>
+            <span class="section-label">과목</span>
+            <select v-model="recommendationForm.subject" class="input-like spaced-sm">
+              <option>수학</option>
+              <option>국어</option>
+            </select>
+          </label>
+        </div>
+
         <div class="button-row spaced-sm">
           <button class="btn" type="button" :disabled="loadingRecommendation" @click="createQuickRecommendation">
-            {{ loadingRecommendation ? '분석 중' : '빠른 추천 생성' }}
+            {{ loadingRecommendation ? '분석 중' : '추천 생성' }}
           </button>
           <RouterLink to="/teacher/scaffolding" class="btn ghost">상세 입력으로 이동</RouterLink>
-        </div>
-      </section>
-
-      <section class="panel" v-if="quickRecommendation">
-        <div class="result-level">
-          <p>추천 지원 수준</p>
-          <strong>{{ levelLabel(quickRecommendation.recommended_level) }}</strong>
-          <p>{{ quickRecommendation.rationale }}</p>
-        </div>
-
-        <div class="strategy-grid spaced">
-          <article v-for="strategy in quickStrategies" :key="strategy" class="strategy-card">
-            <strong>{{ strategy }}</strong>
-            <p>수업 중 바로 적용하고, 적용 반응은 기록 화면에서 이어서 확인합니다.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="panel" v-else>
-        <p class="eyebrow">Recommendation Preview</p>
-        <h2 class="panel-title">추천 결과 대기</h2>
-        <p class="panel-subtitle">
-          관찰 기록을 실행하면 추천 수준, 전략, 활동, 근거 성취기준이 이 영역에 정리됩니다.
-        </p>
-        <div class="strategy-grid spaced">
-          <article v-for="item in previewStrategies" :key="item" class="strategy-card">
-            <strong>{{ item }}</strong>
-            <p>피그마 화면처럼 한눈에 읽히는 실행 단위로 표시됩니다.</p>
-          </article>
         </div>
       </section>
 
       <section class="panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Evidence</p>
-            <h2 class="panel-title">근거 성취기준</h2>
-            <p class="panel-subtitle">AI 추천과 연결되는 성취기준 후보를 교사가 검토합니다.</p>
+            <p class="eyebrow">Scaffolding Results</p>
+            <h2 class="panel-title">추천 수준과 전략</h2>
+            <p class="panel-subtitle">학생의 현재 상태를 반영한 즉시 적용 전략입니다.</p>
           </div>
-          <RouterLink to="/teacher/curriculum" class="btn ghost">기준 검색</RouterLink>
         </div>
 
-        <div class="list-stack spaced">
-          <article v-for="(standard, index) in evidenceList" :key="standard" class="standard-result">
-            <code>{{ `MATCH ${String(index + 1).padStart(2, '0')}` }}</code>
-            <div>
-              <strong>{{ standard }}</strong>
-              <p>{{ selectedSubject }} 수업 맥락과 학생 현재 수준을 함께 반영합니다.</p>
+        <template v-if="quickRecommendation">
+          <div class="space-y-6 pt-1">
+            <div class="result-level">
+              <p>감지된 지원 수준</p>
+              <strong>{{ levelLabel(quickRecommendation.recommended_level) }}</strong>
+              <p class="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+                {{ levelSemantics(quickRecommendation.recommended_level) }}
+              </p>
+              <p class="mt-4 leading-relaxed">{{ quickRecommendation.rationale }}</p>
             </div>
-            <span class="mono">{{ index === 0 ? '0.82' : '0.77' }}</span>
-          </article>
+
+            <div class="strategy-grid spaced gap-y-6">
+              <article v-for="strategy in strategies" :key="strategy" class="strategy-card">
+                <strong>{{ strategy }}</strong>
+                <p class="mt-2 leading-relaxed">수업 장면에서 바로 실행할 수 있는 단위로 정리했습니다.</p>
+              </article>
+            </div>
+          </div>
+        </template>
+
+        <div v-else class="empty-state spaced">
+          <strong>추천 결과 대기</strong>
+          <p>관찰 기록을 입력하고 추천을 실행하면 수준과 전략이 표시됩니다.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Recommended Activities</p>
+            <h2 class="panel-title">추천 활동</h2>
+          </div>
+          <span class="badge soft">{{ activities.length }}개</span>
+        </div>
+
+        <template v-if="quickRecommendation">
+          <p
+            class="mb-4 border-b border-[var(--color-border)] pb-3 text-xs font-medium uppercase tracking-wide text-[var(--color-text-secondary)]"
+          >
+            실행 단위 활동 · 지적 처리 부담을 줄이고 한 번에 하나씩 완료할 수 있게 구성했습니다 (지훈이 맞춤).
+          </p>
+          <div class="strategy-grid spaced gap-y-6">
+            <article
+              v-for="activity in activities"
+              :key="activity.name || activity"
+              class="strategy-card space-y-3 py-4 leading-relaxed"
+            >
+              <strong class="block text-base">{{ activity.name || activity }}</strong>
+              <p class="text-[0.9375rem] leading-relaxed text-[var(--color-text-secondary)]">
+                {{ activity.description || '학생 반응에 따라 도움 강도를 조절하며 진행합니다.' }}
+              </p>
+            </article>
+          </div>
+        </template>
+
+        <div v-else class="empty-state spaced">
+          <strong>추천 결과 대기</strong>
+          <p>추천이 생성되면 학생에게 바로 적용할 수 있는 활동이 표시됩니다.</p>
         </div>
       </section>
     </main>
@@ -150,10 +181,8 @@
     <aside class="column-stack">
       <section class="panel dark">
         <p class="eyebrow">Today Priority</p>
-        <h2 class="panel-title">교사가 지금 봐야 할 것</h2>
-        <p class="panel-subtitle">
-          학생의 상태, 추천 전략, 성취기준 근거, 기록 흐름만 전면에 두었습니다.
-        </p>
+        <h2 class="panel-title">학생 맞춤 수업 포인트</h2>
+        <p class="panel-subtitle">학생의 개별 특성을 고려한 오늘 수업 전 체크리스트입니다.</p>
 
         <div class="list-stack spaced">
           <div v-for="item in priorityList" :key="item" class="dark-list-item">{{ item }}</div>
@@ -161,75 +190,93 @@
       </section>
 
       <section class="panel">
-        <p class="eyebrow">Feedback Loop</p>
-        <h2 class="panel-title">최근 피드백</h2>
-        <div class="list-stack spaced">
-          <article v-for="feedback in feedbackPreview" :key="feedback.id" class="timeline-row">
-            <small>{{ formatDate(feedback.created_at) }}</small>
-            <strong>{{ feedback.teacher_description || feedback.performance || '기록 내용 없음' }}</strong>
-            <span class="badge soft">{{ levelLabel(feedback.llm_analysis?.detected_level) }}</span>
-            <RouterLink to="/teacher/progress" class="mono">보기</RouterLink>
-          </article>
-        </div>
-      </section>
-
-      <section class="panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Career Hint</p>
-            <h2 class="panel-title">강점 기반 진로</h2>
-          </div>
-          <div class="panel-icon">
-            <BriefcaseBusiness />
+            <p class="eyebrow">Achievement Evidence</p>
+            <h2 class="panel-title">근거 성취기준</h2>
+            <p class="panel-subtitle">AI가 스캐폴딩을 제안할 때, 반영한 근거 성취기준입니다.</p>
           </div>
         </div>
-        <div class="callout spaced">
-          <strong>손작업과 순서 기억</strong>
-          <p>반복 루틴과 시각 자료에 안정적으로 반응하는 강점은 직무 체험 후보로 연결됩니다.</p>
+
+        <div v-if="standard" class="callout spaced">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <strong class="min-w-0 flex-1 leading-snug">
+              {{ standard.standard_id || '기준 ID 없음' }} · {{ standard.subject || recommendationForm.subject }}
+            </strong>
+            <span
+              class="shrink-0 text-2xl font-bold tabular-nums tracking-tight text-[var(--color-primary,#4f46e5)]"
+              title="AI 분석 기준 문헌·검색 일치도"
+            >
+              {{ primaryMatchPercent }}
+            </span>
+          </div>
+          <p class="mt-3 leading-relaxed">{{ standard.standard_text }}</p>
         </div>
-        <RouterLink to="/teacher/career" class="btn ghost spaced-sm">진로 추천 보기</RouterLink>
+        <div v-else class="empty-state spaced">
+          <strong>추천 결과 대기</strong>
+          <p>추천 실행 후 가장 관련도 높은 기준이 표시됩니다.</p>
+        </div>
+
+        <p v-if="evidenceList.length" class="eyebrow mt-4">함께 본 기준</p>
+        <div v-if="evidenceList.length" class="list-stack spaced">
+          <article v-for="(row, index) in evidenceList" :key="`${row.text}-${index}`" class="standard-result items-start gap-3">
+            <code class="shrink-0">{{ `REL ${String(index + 1).padStart(2, '0')}` }}</code>
+            <div class="min-w-0 flex-1">
+              <strong class="line-clamp-2">{{ row.text }}</strong>
+              <p class="mt-1 text-sm text-[var(--color-text-secondary)]">AI 매칭 스코어 기준 참고 항목입니다.</p>
+            </div>
+            <span class="mono shrink-0 text-base font-semibold tabular-nums">{{ row.matchPercent }}</span>
+          </article>
+        </div>
       </section>
     </aside>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
-  BriefcaseBusiness,
-  CalendarDays,
   UserRoundCheck,
 } from 'lucide-vue-next'
-import { getScaffoldingRecommendation, getSchoolLife, getStudentProgress } from '../../api'
+import { getScaffoldingRecommendation, getStudentProgress } from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
 
-const subjects = ['수학', '국어']
-const selectedSubject = ref('수학')
 const observationDraft = ref(
   '수학 활동에서 수 모형을 보여주면 문제 풀이를 시작하지만, 말로만 설명하면 첫 단계에서 멈추고 도움을 요청하지 못합니다.',
 )
-const schoolLife = ref({})
 const progress = ref({ feedbacks: [], progress_summary: '' })
 const quickRecommendation = ref(null)
 const loadingRecommendation = ref(false)
 
-const studentName = computed(() => studentStore.student?.name || '나의 아이')
+const recommendationForm = reactive({
+  grade: '초등학교 3학년',
+  subject: '수학',
+})
+
+const studentName = computed(() => studentStore.student?.name || '이지훈')
 
 const studentCards = computed(() => [
-  { label: '현재 수준', value: studentStore.student?.current_level || '초등 3학년 수준 입력 대기' },
-  { label: '장애 유형', value: studentStore.student?.disability_type || '정보 없음' },
-  { label: '중복 정보', value: studentStore.student?.additional_diagnoses || '없음' },
-  { label: '행동 특성', value: studentStore.student?.behavioral_traits || '가정/학교 특성 입력 필요' },
-])
-
-const schoolCards = computed(() => [
-  { label: '점심', value: schoolLife.value.lunch_menu || '정보 없음' },
-  { label: '하교 시간', value: schoolLife.value.dismissal_time || '정보 없음' },
-  { label: '오늘 시간표', value: (schoolLife.value.today_timetable || []).join(', ') || '정보 없음' },
-  { label: '학사 일정', value: schoolLife.value.academic_calendar || '일정 없음' },
+  {
+    label: '현재 수준',
+    value: studentStore.student?.current_level || '초등 3학년 수준 · 구체적 연산 단계에서 개별 지원 필요',
+  },
+  {
+    label: '장애 유형',
+    value: studentStore.student?.disability_type || '경도 지적장애 · ADHD (프로필 등록 시 서버에 반영)',
+  },
+  {
+    label: '동반 진단',
+    value: studentStore.student?.additional_diagnoses || '없음 또는 미등록',
+  },
+  {
+    label: '과제·주의 특성',
+    value:
+      studentStore.student?.behavioral_traits ||
+      '말로만 된 설명보다 시각·순서 단서가 있을 때 과제 지속 시간이 길어짐 · 전환 시 예고 필요',
+  },
 ])
 
 const feedbacks = computed(() => progress.value.feedbacks || [])
@@ -244,11 +291,57 @@ const sideMetrics = computed(() => [
 
 const feedbackPreview = computed(() => feedbacks.value.slice(-3).reverse())
 
-const quickStrategies = computed(() =>
+const strategies = computed(() =>
   quickRecommendation.value?.scaffolding_details?.strategies?.length
     ? quickRecommendation.value.scaffolding_details.strategies
     : previewStrategies,
 )
+
+const activities = computed(() =>
+  quickRecommendation.value?.scaffolding_details?.activities?.length
+    ? quickRecommendation.value.scaffolding_details.activities
+    : [
+        { name: '단계 카드 정렬', description: '풀이 순서를 카드로 먼저 놓고 한 단계씩 수행합니다.' },
+        { name: '도움 요청 문장 연습', description: '멈춘 지점에서 사용할 짧은 요청 문장을 선택하게 합니다.' },
+      ],
+)
+
+const standard = computed(() => quickRecommendation.value?.achievement_standard || null)
+
+const primaryMatchPercent = computed(() =>
+  scoreToPercent(standard.value?.relevance_score ?? standard.value?.match_score),
+)
+
+const evidenceList = computed(() => {
+  const rec = quickRecommendation.value
+  if (!rec?.related_achievement_standards?.length) return []
+
+  const primaryScoreRaw = rec.achievement_standard?.relevance_score ?? rec.achievement_standard?.match_score ?? 0.82
+  const primaryScore = typeof primaryScoreRaw === 'number' ? primaryScoreRaw : Number(primaryScoreRaw) || 0.82
+
+  return rec.related_achievement_standards
+    .map((item, index) => {
+      const text =
+        typeof item === 'string'
+          ? item
+          : item?.standard_text || item?.text || ''
+      if (!text.trim() || isPlaceholderRelatedText(text)) return null
+
+      let matchRaw
+      if (typeof item === 'object' && item != null) {
+        matchRaw = item.match_score ?? item.relevance_score
+      }
+      if (matchRaw == null || Number.isNaN(Number(matchRaw))) {
+        matchRaw = Math.max(0.48, primaryScore - (index + 1) * 0.055)
+      }
+
+      return {
+        text,
+        matchPercent: scoreToPercent(matchRaw),
+      }
+    })
+    .filter(Boolean)
+})
 
 const previewStrategies = [
   '한 번에 한 단계만 제시',
@@ -257,26 +350,35 @@ const previewStrategies = [
   '도움 요청 문장 카드 제공',
 ]
 
-const evidenceList = computed(() => {
-  const result = quickRecommendation.value
-  const standards = [
-    result?.achievement_standard?.standard_text,
-    ...(result?.related_achievement_standards || []),
-  ].filter(Boolean).slice(0, 3)
-  return standards.length
-    ? standards
-    : [
-        '수학: 수 모형을 활용해 덧셈과 뺄셈 과정을 나타낸다.',
-        '국어: 핵심 낱말의 의미를 문맥에서 파악한다.',
-      ]
-})
-
 const priorityList = [
-  '오늘 관찰 기록을 먼저 남기기',
-  '추천 수준과 실제 지원 강도 비교',
-  '성취기준 근거를 수업 목표에 연결',
-  '적용 후 반응을 피드백으로 누적',
+  '1. ADHD 투약 여부 및 아침 컨디션 확인',
+  '2. 수업 시작 전 시각적 스케줄러 배치',
+  '3. 과제 전환 시 3분 전 예고제 실시',
+  '4. 지시는 한 문장·한 단계, 성공 시 즉각 구두 강화',
 ]
+
+function scoreToPercent(raw) {
+  if (raw == null || raw === '') return '—'
+  const n = Number(raw)
+  if (Number.isNaN(n)) return '—'
+  const pct = n <= 1 ? Math.round(n * 100) : Math.round(n)
+  return `${pct}%`
+}
+
+function isPlaceholderRelatedText(text) {
+  return /추천 생성 후|후보가 여기/.test(text)
+}
+
+function levelSemantics(level) {
+  const key = String(level || '').toLowerCase()
+  if (key === 'medium' || key === '중' || level === '중간')
+    return '중간(Medium): 시각적 촉진(Visual Prompt)과 부분적 신체 지원이 필요한 단계입니다.'
+  if (key === 'high' || key === '상' || level === '높음')
+    return '높음(High): 높은 구조화와 반복 모델링이 필요하며, 시작을 대신 제시해 주는 단계입니다.'
+  if (key === 'low' || key === '하' || level === '낮음')
+    return '낮음(Low): 언어 단서만으로도 과제를 지속할 수 있으며, 확인 질문 위주로 지원합니다.'
+  return '추천 수준에 따른 지원 강도입니다. 필요 시 상세 입력 화면에서 조정할 수 있습니다.'
+}
 
 function levelLabel(level) {
   const map = {
@@ -299,9 +401,11 @@ async function createQuickRecommendation() {
   loadingRecommendation.value = true
   try {
     quickRecommendation.value = await getScaffoldingRecommendation({
-      grade: '초등학교 3학년',
-      subject: selectedSubject.value,
+      grade: recommendationForm.grade,
+      subject: recommendationForm.subject,
       teacher_description: observationDraft.value,
+      disability_type: studentStore.student?.disability_type || undefined,
+      additional_diagnoses: studentStore.student?.additional_diagnoses || undefined,
     })
     progress.value = await getStudentProgress()
   } finally {
@@ -310,8 +414,7 @@ async function createQuickRecommendation() {
 }
 
 onMounted(async () => {
-  const [schoolData, progressData] = await Promise.all([getSchoolLife(), getStudentProgress()])
-  schoolLife.value = schoolData
+  const progressData = await getStudentProgress()
   progress.value = progressData
 })
 </script>

@@ -32,17 +32,6 @@
           </button>
         </div>
       </section>
-
-      <section class="panel">
-        <p class="eyebrow">Student</p>
-        <h2 class="panel-title">{{ studentStore.student?.name || '나의 아이' }}</h2>
-        <div class="list-stack spaced">
-          <div v-for="item in profileRows" :key="item.label" class="card-row">
-            <strong>{{ item.label }}</strong>
-            <span>{{ item.value }}</span>
-          </div>
-        </div>
-      </section>
     </aside>
 
     <main class="column-stack">
@@ -98,10 +87,10 @@
 
     <aside class="column-stack">
       <section class="panel dark">
-        <p class="eyebrow">Recommendation API</p>
-        <h2 class="panel-title">강점 기반 경로</h2>
+        <p class="eyebrow">Career Recommendation</p>
+        <h2 class="panel-title">강점 기반 진로 추천</h2>
         <p class="panel-subtitle">
-          경로 분석을 실행하면 추천 직업, 격차, 단계별 커리어 경로를 서버에서 받아옵니다.
+          경로 분석을 실행하면 학생에게 맞는 추천 직업, 격차, 단계별 커리어 경로를 제공합니다.
         </p>
       </section>
 

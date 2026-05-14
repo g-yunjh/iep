@@ -42,7 +42,7 @@
           <component :is="item.icon" />
           <span>{{ item.label }}</span>
         </RouterLink>
-        <div class="rail-avatar">{{ isTeacherRoute ? 'K' : '부' }}</div>
+        <div class="rail-avatar">{{ isTeacherRoute ? '지훈' : '지훈' }}</div>
       </aside>
 
       <nav class="mobile-tabs" aria-label="모바일 탭">
@@ -117,8 +117,8 @@ const navItems = computed(() => (isTeacherRoute.value ? teacherItems : parentIte
 const headers = {
   '/teacher/overview': {
     eyebrow: '교사용 워크벤치',
-    title: '오늘 수업 지원 대시보드',
-    copy: '관찰 기록을 AI 추천으로 바꾸고, 근거 성취기준과 피드백 이력을 바로 확인합니다.',
+    title: '대시보드',
+    copy: '관찰 기록을 바탕으로 한 AI 스캐폴딩 추천과 근거 기준, 학생 성장 흐름을 한눈에 확인합니다.',
     search: '학생, 성취기준, 피드백 검색',
     cta: '추천 작성',
     ctaTo: '/teacher/scaffolding',
@@ -157,7 +157,7 @@ const headers = {
   },
   '/parent/overview': {
     eyebrow: '학부모용 워크벤치',
-    title: '오늘 아이 지원',
+    title: '대시보드',
     copy: '학교생활 정보와 최근 피드백을 쉬운 문장으로 보고, 집에서 바로 해볼 일을 확인합니다.',
     search: '학교생활, 강점, 진로 검색',
     cta: '기록 보기',

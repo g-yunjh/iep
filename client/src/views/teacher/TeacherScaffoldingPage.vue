@@ -177,7 +177,7 @@ const form = reactive({
     '수 모형을 보여주면 덧셈 활동을 시작하지만, 받아올림 단계에서 멈추고 도움 요청을 하지 못합니다.',
 })
 
-const studentName = computed(() => studentStore.student?.name || '나의 아이')
+const studentName = computed(() => studentStore.student?.name || '이지훈')
 const studentProfile = computed(() => [
   { label: '현재 수준', value: studentStore.student?.current_level || '초등 3학년 수준 입력 대기' },
   { label: '장애 유형', value: studentStore.student?.disability_type || '정보 없음' },
