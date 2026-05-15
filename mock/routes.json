@@ -1,0 +1,7 @@
+{
+  "/student/": "/student",
+  "/student/school-life": "/student/school-life",
+  "/student/progress": "/student/progress",
+  "/rag/scaffolding-recommendation": "/rag/scaffolding-recommendation",
+  "/rag/career-recommendation": "/rag/career-recommendation"
+}
