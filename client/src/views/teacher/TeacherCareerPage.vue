@@ -109,8 +109,13 @@
         <p class="eyebrow">Career Path</p>
         <h2 class="panel-title">단계별 경로</h2>
         <div v-if="pathStages.length" class="list-stack spaced">
-          <div v-for="stage in pathStages" :key="`${stage.stage}-${stage.description}`" class="path-stage">
+          <div
+            v-for="stage in pathStages"
+            :key="`${stage.stage}-${stage.focus || ''}-${stage.description}`"
+            class="path-stage"
+          >
             <strong>{{ stage.stage }}</strong>
+            <p v-if="stage.focus">{{ stage.focus }}</p>
             <p>{{ stage.description }}</p>
           </div>
         </div>

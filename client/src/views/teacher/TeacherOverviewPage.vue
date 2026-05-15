@@ -239,7 +239,7 @@ import { RouterLink } from 'vue-router'
 import {
   UserRoundCheck,
 } from 'lucide-vue-next'
-import { getScaffoldingRecommendation, getStudentProgress } from '../../api'
+import { getScaffoldingRecommendation, getStudentProgress, mapLevelToKorean } from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
@@ -282,7 +282,7 @@ const studentCards = computed(() => [
 const feedbacks = computed(() => progress.value.feedbacks || [])
 const progressSummary = computed(() => progress.value.progress_summary || '최근 피드백을 불러오는 중입니다.')
 const latestFeedback = computed(() => feedbacks.value.at(-1) || null)
-const latestLevel = computed(() => latestFeedback.value?.llm_analysis?.detected_level || 'medium')
+const latestLevel = computed(() => latestFeedback.value?.llm_analysis?.detected_level || '중')
 
 const sideMetrics = computed(() => [
   { label: '기록 수', value: feedbacks.value.length, caption: '누적 피드백' },
@@ -370,26 +370,20 @@ function isPlaceholderRelatedText(text) {
 }
 
 function levelSemantics(level) {
-  const key = String(level || '').toLowerCase()
-  if (key === 'medium' || key === '중' || level === '중간')
-    return '중간(Medium): 시각적 촉진(Visual Prompt)과 부분적 신체 지원이 필요한 단계입니다.'
-  if (key === 'high' || key === '상' || level === '높음')
-    return '높음(High): 높은 구조화와 반복 모델링이 필요하며, 시작을 대신 제시해 주는 단계입니다.'
-  if (key === 'low' || key === '하' || level === '낮음')
-    return '낮음(Low): 언어 단서만으로도 과제를 지속할 수 있으며, 확인 질문 위주로 지원합니다.'
-  return '추천 수준에 따른 지원 강도입니다. 필요 시 상세 입력 화면에서 조정할 수 있습니다.'
+  const mapped = mapLevelToKorean(level)
+  const key = String(mapped || '').trim()
+  if (key === '중')
+    return '중: 시각적 단서와 단계별 안내를 병행하면 과제를 이어가기 쉬운 수준입니다.'
+  if (key === '상')
+    return '상: 상대적으로 독립 수행에 가깝고, 확인 질문·선택지 중심의 가벼운 지원으로 충분한 경우가 많습니다.'
+  if (key === '하')
+    return '하: 세분화된 시각·구체 자료와 짧은 단계의 안내가 필요한 수준입니다.'
+  return '추천 수준(상·중·하)에 따른 지원 강도입니다. 필요 시 상세 입력 화면에서 조정할 수 있습니다.'
 }
 
 function levelLabel(level) {
-  const map = {
-    high: '높음',
-    medium: '중간',
-    low: '낮음',
-    상: '높음',
-    중: '중간',
-    하: '낮음',
-  }
-  return map[level] || level || '대기'
+  const mapped = mapLevelToKorean(level)
+  return mapped != null && mapped !== '' ? mapped : '대기'
 }
 
 function formatDate(value) {

@@ -114,7 +114,7 @@
             <p class="text-xs text-slate-500">{{ formatDate(feedback.created_at) }}</p>
             <p class="text-sm text-slate-700 mt-1">{{ feedback.teacher_description }}</p>
             <p class="text-xs text-indigo-600 mt-1">
-              분석 레벨: {{ feedback.llm_analysis?.detected_level || '-' }}
+              분석 레벨: {{ mapLevelToKorean(feedback.llm_analysis?.detected_level) || feedback.llm_analysis?.detected_level || '-' }}
             </p>
           </li>
         </ul>
@@ -130,6 +130,7 @@ import {
   getScaffoldingRecommendation,
   searchCurriculum,
   getStudentProgress,
+  mapLevelToKorean,
 } from '../api'
 
 const props = defineProps({

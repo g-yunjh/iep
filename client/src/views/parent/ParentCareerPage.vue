@@ -54,7 +54,7 @@
           <article v-for="career in recommendedCareers" :key="career.job_title" class="career-result">
             <div>
               <strong>{{ career.job_title }}</strong>
-              <p>{{ career.outlook || `필요 역량: ${listText(career.required_skills)}` }}</p>
+              <p>{{ career.category || '기타' }} · 적합도 {{ percentText(career.match_score ?? career.score) }}</p>
             </div>
             <span class="mono">{{ percentText(career.match_score ?? career.score) }}</span>
           </article>
@@ -91,11 +91,12 @@
         <div v-if="pathStages.length" class="list-stack spaced">
           <div
             v-for="(stage, index) in pathStages"
-            :key="`${stage.stage}-${stage.description}`"
+            :key="`${stage.stage}-${stage.focus || ''}-${stage.description}`"
             class="path-stage parent-path-stage"
           >
             <span class="step-dot">{{ index + 1 }}</span>
             <strong>{{ stage.stage }}</strong>
+            <p v-if="stage.focus">{{ stage.focus }}</p>
             <p>{{ stage.description }}</p>
           </div>
         </div>
