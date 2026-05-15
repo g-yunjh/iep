@@ -33,6 +33,9 @@ server/*.db-journal
 server/*.sqlite
 server/*.sqlite3
 
+# Mock API data
+mock/node_modules/
+
 # IDE / editor settings
 .vscode/
 .idea/
