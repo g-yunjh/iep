@@ -115,7 +115,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ClipboardList, TrendingUp } from 'lucide-vue-next'
-import { getStudentProgress } from '../../api'
+import { getStudentProgress, mapLevelToKorean } from '../../api'
 
 const loading = ref(false)
 const feedbacks = ref([])
@@ -124,7 +124,7 @@ const selectedId = ref(null)
 
 const orderedFeedbacks = computed(() => [...feedbacks.value].reverse())
 const selectedFeedback = computed(() => feedbacks.value.find((feedback) => feedback.id === selectedId.value) || orderedFeedbacks.value[0] || null)
-const latestLevel = computed(() => selectedFeedback.value?.llm_analysis?.detected_level || 'medium')
+const latestLevel = computed(() => selectedFeedback.value?.llm_analysis?.detected_level || '중')
 
 const metrics = computed(() => [
   { label: '총 기록', value: feedbacks.value.length, caption: 'Feedback rows' },
@@ -150,8 +150,8 @@ const recommendationText = computed(() => {
 })
 
 function levelLabel(level) {
-  const map = { high: '높음', medium: '중간', low: '낮음', 상: '높음', 중: '중간', 하: '낮음' }
-  return map[level] || level || '대기'
+  const mapped = mapLevelToKorean(level)
+  return mapped != null && mapped !== '' ? mapped : '대기'
 }
 
 function formatDate(value) {

@@ -162,7 +162,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { UserRoundCog } from 'lucide-vue-next'
-import { getScaffoldingRecommendation, getStudentProgress } from '../../api'
+import { getScaffoldingRecommendation, getStudentProgress, mapLevelToKorean } from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
@@ -207,8 +207,8 @@ const relatedStandards = computed(() =>
 )
 
 function levelLabel(level) {
-  const map = { high: '높음', medium: '중간', low: '낮음', 상: '높음', 중: '중간', 하: '낮음' }
-  return map[level] || level || '대기'
+  const mapped = mapLevelToKorean(level)
+  return mapped != null && mapped !== '' ? mapped : '대기'
 }
 
 function formatDate(value) {
