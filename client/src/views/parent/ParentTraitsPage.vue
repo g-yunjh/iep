@@ -6,7 +6,7 @@
           <div>
             <p class="eyebrow">Child Profile</p>
             <h2 class="panel-title">아이 특성 관리</h2>
-            <p class="panel-subtitle">저장된 정보는 교사용 추천 맥락에도 반영됩니다.</p>
+            <p class="panel-subtitle">가정에서 보이는 반응을 기록해 학교와 같은 지원 방향을 맞춥니다.</p>
           </div>
           <div class="panel-icon">
             <UserRoundCog />
@@ -15,15 +15,15 @@
 
         <div class="callout spaced">
           <strong>가정에서만 아는 단서가 중요합니다.</strong>
-          <p>어려워하는 상황, 안정되는 방식, 좋아하는 활동을 짧게 적어두면 추천 품질이 좋아집니다.</p>
+          <p>어려워하는 상황, 안정되는 방식, 좋아하는 활동을 짧게 적어두면 지원 방향을 더 쉽게 맞출 수 있습니다.</p>
         </div>
       </section>
 
       <section class="panel dark">
-        <p class="eyebrow">Backend</p>
-        <h2 class="panel-title">저장 위치</h2>
+        <p class="eyebrow">Shared Support</p>
+        <h2 class="panel-title">함께 보는 특성</h2>
         <p class="panel-subtitle">
-          저장 버튼은 `PATCH /student`로 학생 프로필을 갱신합니다.
+          작성한 특성은 이후 학교와 가정의 지원 방향을 정할 때 참고됩니다.
         </p>
       </section>
     </aside>
@@ -34,9 +34,9 @@
           <div>
             <p class="eyebrow">Editable Fields</p>
             <h2 class="panel-title">프로필 입력</h2>
-            <p class="panel-subtitle">민감한 진단명보다 실제 지원에 필요한 표현을 우선합니다.</p>
+            <p class="panel-subtitle">실제 지원에 도움이 되는 표현을 우선해 적습니다.</p>
           </div>
-          <span class="badge primary">PATCH /student</span>
+          <span class="badge primary">특성 저장</span>
         </div>
 
         <div class="mini-grid spaced">
@@ -90,9 +90,9 @@
         <p class="eyebrow">Useful Examples</p>
         <h2 class="panel-title">좋은 입력 예시</h2>
         <div class="list-stack spaced">
-          <div v-for="example in examples" :key="example" class="strategy-card">
-            <strong>{{ example }}</strong>
-            <p>교사와 가정이 같은 지원 전략을 쓰는 데 도움이 됩니다.</p>
+          <div v-for="(example, index) in examples" :key="example" class="strategy-card strategy-card-labeled">
+            <strong class="strategy-card-heading">입력 예시 {{ index + 1 }}</strong>
+            <p class="strategy-card-copy">{{ example }}</p>
           </div>
         </div>
       </section>
