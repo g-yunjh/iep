@@ -174,7 +174,7 @@ const headers = {
   '/parent/traits': {
     eyebrow: '학부모용 워크벤치',
     title: '아이 특성 관리',
-    copy: '가정에서 아는 강점과 어려움을 저장해 교사 추천 맥락에 보탭니다.',
+    copy: '가정에서 보이는 강점과 어려움을 기록해 학교와 같은 지원 방향을 맞춥니다.',
     search: '특성, 행동, 수준 검색',
     cta: '특성 저장',
     ctaTo: '/parent/traits',

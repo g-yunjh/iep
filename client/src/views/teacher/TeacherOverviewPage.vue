@@ -6,15 +6,15 @@
           <div>
             <p class="eyebrow">Student Profile</p>
             <h2 class="panel-title">{{ studentName }}</h2>
-            <p class="panel-subtitle">AI가 답변 생성시 학생의 기본 특성을 반영합니다.</p>
           </div>
           <div class="panel-icon">
             <UserRoundCheck />
           </div>
         </div>
+        <p class="panel-subtitle student-profile-subtitle">AI가 답변 생성시 학생의 기본 특성을 반영합니다.</p>
 
-        <div class="list-stack spaced">
-          <div v-for="item in studentCards" :key="item.label" class="card-row">
+        <div class="list-stack spaced student-profile-list">
+          <div v-for="item in studentCards" :key="item.label" class="card-row student-profile-row">
             <strong>{{ item.label }}</strong>
             <span>{{ item.value }}</span>
           </div>
@@ -117,20 +117,39 @@
         </div>
 
         <template v-if="quickRecommendation">
-          <div class="space-y-6 pt-1">
+          <div class="scaffolding-result-stack space-y-6">
             <div class="result-level">
-              <p>감지된 지원 수준</p>
-              <strong>{{ levelLabel(quickRecommendation.recommended_level) }}</strong>
-              <p class="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
-                {{ levelSemantics(quickRecommendation.recommended_level) }}
-              </p>
-              <p class="mt-4 leading-relaxed">{{ quickRecommendation.rationale }}</p>
+              <div class="result-level-header">
+                <div>
+                  <p class="result-kicker">감지된 지원 수준</p>
+                  <strong class="result-level-mark">{{ levelLabel(quickRecommendation.recommended_level) }}</strong>
+                </div>
+                <span v-if="recommendationConfidence" class="result-confidence">
+                  신뢰도 {{ recommendationConfidence }}
+                </span>
+              </div>
+
+              <div class="result-report-grid">
+                <article class="result-report-block result-report-block-primary">
+                  <span>평가 요약</span>
+                  <p>{{ levelSemantics(quickRecommendation.recommended_level) }}</p>
+                  <p v-if="rationaleSections.assessment">{{ rationaleSections.assessment }}</p>
+                </article>
+                <article v-if="rationaleSections.gap" class="result-report-block">
+                  <span>주요 학습 격차</span>
+                  <p>{{ rationaleSections.gap }}</p>
+                </article>
+                <article v-if="rationaleSections.standard" class="result-report-block result-report-block-wide">
+                  <span>근거 성취기준</span>
+                  <p>{{ rationaleSections.standard }}</p>
+                </article>
+              </div>
             </div>
 
             <div class="strategy-grid spaced gap-y-6">
-              <article v-for="strategy in strategies" :key="strategy" class="strategy-card">
-                <strong>{{ strategy }}</strong>
-                <p class="mt-2 leading-relaxed">수업 장면에서 바로 실행할 수 있는 단위로 정리했습니다.</p>
+              <article v-for="(strategy, index) in strategies" :key="strategy" class="strategy-card strategy-card-labeled">
+                <strong class="strategy-card-heading">추천 전략 {{ index + 1 }}</strong>
+                <p class="strategy-card-copy">{{ strategy }}</p>
               </article>
             </div>
           </div>
@@ -152,11 +171,6 @@
         </div>
 
         <template v-if="quickRecommendation">
-          <p
-            class="mb-4 border-b border-[var(--color-border)] pb-3 text-xs font-medium uppercase tracking-wide text-[var(--color-text-secondary)]"
-          >
-            실행 단위 활동 · 지적 처리 부담을 줄이고 한 번에 하나씩 완료할 수 있게 구성했습니다 (지훈이 맞춤).
-          </p>
           <div class="strategy-grid spaced gap-y-6">
             <article
               v-for="activity in activities"
@@ -198,32 +212,31 @@
           </div>
         </div>
 
-        <div v-if="standard" class="callout spaced">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <strong class="min-w-0 flex-1 leading-snug">
+        <div v-if="standard" class="callout spaced evidence-primary">
+          <div class="evidence-primary-head">
+            <strong>
               {{ standard.standard_id || '기준 ID 없음' }} · {{ standard.subject || recommendationForm.subject }}
             </strong>
             <span
-              class="shrink-0 text-2xl font-bold tabular-nums tracking-tight text-[var(--color-primary,#4f46e5)]"
+              class="evidence-primary-score"
               title="AI 분석 기준 문헌·검색 일치도"
             >
               {{ primaryMatchPercent }}
             </span>
           </div>
-          <p class="mt-3 leading-relaxed">{{ standard.standard_text }}</p>
+          <p>{{ standard.standard_text }}</p>
         </div>
         <div v-else class="empty-state spaced">
           <strong>추천 결과 대기</strong>
           <p>추천 실행 후 가장 관련도 높은 기준이 표시됩니다.</p>
         </div>
 
-        <p v-if="evidenceList.length" class="eyebrow mt-4">함께 본 기준</p>
-        <div v-if="evidenceList.length" class="list-stack spaced">
-          <article v-for="(row, index) in evidenceList" :key="`${row.text}-${index}`" class="standard-result items-start gap-3">
+        <p v-if="evidenceList.length" class="eyebrow evidence-section-label">함께 본 기준</p>
+        <div v-if="evidenceList.length" class="list-stack spaced evidence-list">
+          <article v-for="(row, index) in evidenceList" :key="`${row.text}-${index}`" class="standard-result evidence-result">
             <code class="shrink-0">{{ `REL ${String(index + 1).padStart(2, '0')}` }}</code>
             <div class="min-w-0 flex-1">
-              <strong class="line-clamp-2">{{ row.text }}</strong>
-              <p class="mt-1 text-sm text-[var(--color-text-secondary)]">AI 매칭 스코어 기준 참고 항목입니다.</p>
+              <strong>{{ row.text }}</strong>
             </div>
             <span class="mono shrink-0 text-base font-semibold tabular-nums">{{ row.matchPercent }}</span>
           </article>
@@ -280,7 +293,10 @@ const studentCards = computed(() => [
 ])
 
 const feedbacks = computed(() => progress.value.feedbacks || [])
-const progressSummary = computed(() => progress.value.progress_summary || '최근 피드백을 불러오는 중입니다.')
+const progressSummary = computed(() => {
+  const count = feedbacks.value.length
+  return count > 0 ? `총 ${count}개의 피드백 기록이 있습니다.` : '아직 누적된 피드백 기록이 없습니다.'
+})
 const latestFeedback = computed(() => feedbacks.value.at(-1) || null)
 const latestLevel = computed(() => latestFeedback.value?.llm_analysis?.detected_level || '중')
 
@@ -312,6 +328,35 @@ const primaryMatchPercent = computed(() =>
   scoreToPercent(standard.value?.relevance_score ?? standard.value?.match_score),
 )
 
+const recommendationConfidence = computed(() => {
+  const rec = quickRecommendation.value
+  const direct =
+    rec?.confidence_score ??
+    rec?.confidence ??
+    rec?.llm_analysis?.confidence_score ??
+    rec?.analysis?.confidence_score
+  if (direct != null && direct !== '') {
+    const n = Number(direct)
+    return Number.isNaN(n) ? String(direct) : n <= 1 ? n.toFixed(2) : `${Math.round(n)}%`
+  }
+
+  const match = String(rec?.rationale || '').match(/신뢰도\s*[:：]\s*([0-9]+(?:\.[0-9]+)?%?)/)
+  return match?.[1] || ''
+})
+
+const displayRationale = computed(() => {
+  const raw = String(quickRecommendation.value?.rationale || '')
+  return raw
+    .split('\n')
+    .filter((line) => !/^신뢰도\s*[:：]/.test(line.trim()))
+    .join('\n')
+    .trim()
+})
+
+const rationaleSections = computed(() =>
+  parseRationaleSections(displayRationale.value, levelSemantics(quickRecommendation.value?.recommended_level)),
+)
+
 const evidenceList = computed(() => {
   const rec = quickRecommendation.value
   if (!rec?.related_achievement_standards?.length) return []
@@ -336,7 +381,7 @@ const evidenceList = computed(() => {
       }
 
       return {
-        text,
+        text: stripRelatedScoreText(text),
         matchPercent: scoreToPercent(matchRaw),
       }
     })
@@ -367,6 +412,52 @@ function scoreToPercent(raw) {
 
 function isPlaceholderRelatedText(text) {
   return /추천 생성 후|후보가 여기/.test(text)
+}
+
+function stripRelatedScoreText(text) {
+  return String(text || '').replace(/\s*\(관련도\s*[0-9]+(?:\.[0-9]+)?\)\s*$/g, '').trim()
+}
+
+function parseRationaleSections(text, semanticText = '') {
+  const sections = {
+    assessment: '',
+    gap: '',
+    standard: '',
+  }
+  let current = 'assessment'
+
+  String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      if (semanticText && line === semanticText.trim()) return
+
+      const gapMatch = line.match(/^주요 학습 격차\s*[:：]\s*(.*)$/)
+      if (gapMatch) {
+        current = 'gap'
+        sections.gap = appendSentence(sections.gap, gapMatch[1])
+        return
+      }
+
+      const standardMatch = line.match(/^관련 성취기준\s*[:：]\s*(.*)$/)
+      if (standardMatch) {
+        current = 'standard'
+        sections.standard = appendSentence(sections.standard, standardMatch[1])
+        return
+      }
+
+      if (/^[상중하]\s*[:：]/.test(line)) return
+      sections[current] = appendSentence(sections[current], line)
+    })
+
+  return sections
+}
+
+function appendSentence(base, next) {
+  const value = String(next || '').trim()
+  if (!value) return base
+  return base ? `${base} ${value}` : value
 }
 
 function levelSemantics(level) {

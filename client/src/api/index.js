@@ -244,7 +244,7 @@ const sampleProgress = {
       created_at: '2026-04-23T10:10:00',
     },
   ],
-  progress_summary: '총 29개의 피드백 기록이 있습니다. 최근 분석 결과: 중 수준: 3회',
+  progress_summary: '',
 }
 
 const FIXED_TOMORROW_PREP = ['체육복', '색연필', '국어 공책']

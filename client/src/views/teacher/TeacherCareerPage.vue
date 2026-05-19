@@ -6,7 +6,7 @@
           <div>
             <p class="eyebrow">Skill Context</p>
             <h2 class="panel-title">현재 역량 입력</h2>
-            <p class="panel-subtitle">강점과 관심 활동을 입력하면 AI가 맞춤 진로를 추천합니다.</p>
+            <p class="panel-subtitle career-hero-subtitle">강점과 관심 활동을 입력하면 AI가 맞춤 진로를 추천합니다.</p>
           </div>
           <div class="panel-icon">
             <Sparkles />
@@ -33,8 +33,8 @@
       <section class="panel">
         <p class="eyebrow">Student</p>
         <h2 class="panel-title">학생 맥락</h2>
-        <div class="list-stack spaced">
-          <div v-for="item in profileRows" :key="item.label" class="card-row">
+        <div class="list-stack spaced student-context-list">
+          <div v-for="item in profileRows" :key="item.label" class="card-row student-context-row">
             <strong>{{ item.label }}</strong>
             <span>{{ item.value }}</span>
           </div>
@@ -95,7 +95,7 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Development</p>
-            <h2 class="panel-title">키우기 제안</h2>
+            <h2 class="panel-title">역량 성장 제안</h2>
           </div>
           <span class="badge soft">{{ selectedCareerTitle }}</span>
         </div>
@@ -117,7 +117,7 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Skill Gap</p>
-            <h2 class="panel-title">수업으로 키울 역량</h2>
+            <h2 class="panel-title career-skill-title">수업으로 키울 역량</h2>
           </div>
           <span class="badge soft">{{ selectedCareerTitle }}</span>
         </div>
