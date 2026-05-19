@@ -45,16 +45,16 @@
           <div>
             <p class="eyebrow">Career Hints</p>
             <h2 class="panel-title">추천 진로 후보</h2>
-            <p class="panel-subtitle">백엔드 진로 추천 결과를 학부모가 읽기 쉬운 카드로 표시합니다.</p>
+            <p class="panel-subtitle">아이의 강점과 좋아하는 활동에서 이어볼 수 있는 진로 힌트입니다.</p>
           </div>
-          <span class="badge primary">POST /rag/career-recommendation</span>
+          <span class="badge primary">진로 힌트</span>
         </div>
 
         <div class="list-stack spaced">
           <article v-for="career in recommendedCareers" :key="career.job_title" class="career-result">
             <div>
               <strong>{{ career.job_title }}</strong>
-              <p>{{ career.outlook || `필요 역량: ${listText(career.required_skills)}` }}</p>
+              <p>{{ career.category || '기타' }} · 적합도 {{ percentText(career.match_score ?? career.score) }}</p>
             </div>
             <span class="mono">{{ percentText(career.match_score ?? career.score) }}</span>
           </article>
@@ -65,9 +65,9 @@
         <p class="eyebrow">Conversation</p>
         <h2 class="panel-title">오늘 해볼 대화</h2>
         <div class="strategy-grid spaced">
-          <article v-for="sentence in conversationPrompts" :key="sentence" class="strategy-card">
-            <strong>{{ sentence }}</strong>
-            <p>진로 이름보다 아이가 편했던 과정과 강점을 먼저 묻는 문장입니다.</p>
+          <article v-for="(sentence, index) in conversationPrompts" :key="sentence" class="strategy-card strategy-card-labeled">
+            <strong class="strategy-card-heading">대화 힌트 {{ index + 1 }}</strong>
+            <p class="strategy-card-copy">{{ sentence }}</p>
           </article>
         </div>
       </section>
@@ -91,11 +91,12 @@
         <div v-if="pathStages.length" class="list-stack spaced">
           <div
             v-for="(stage, index) in pathStages"
-            :key="`${stage.stage}-${stage.description}`"
+            :key="`${stage.stage}-${stage.focus || ''}-${stage.description}`"
             class="path-stage parent-path-stage"
           >
             <span class="step-dot">{{ index + 1 }}</span>
             <strong>{{ stage.stage }}</strong>
+            <p v-if="stage.focus">{{ stage.focus }}</p>
             <p>{{ stage.description }}</p>
           </div>
         </div>

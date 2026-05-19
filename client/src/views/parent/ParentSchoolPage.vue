@@ -6,7 +6,7 @@
           <div>
             <p class="eyebrow">School Life</p>
             <h2 class="panel-title">학교생활 요약</h2>
-            <p class="panel-subtitle">NEIS 연동 정보와 fallback 데이터를 같은 화면에서 표시합니다.</p>
+            <p class="panel-subtitle">오늘 학교생활에서 확인할 일정과 준비물을 한눈에 정리합니다.</p>
           </div>
           <div class="panel-icon">
             <School />
@@ -19,10 +19,10 @@
       </section>
 
       <section class="panel dark">
-        <p class="eyebrow">Plain View</p>
-        <h2 class="panel-title">학부모 화면 기준</h2>
+        <p class="eyebrow">Daily Focus</p>
+        <h2 class="panel-title">오늘 준비 기준</h2>
         <p class="panel-subtitle">
-          급식, 시간표, 하교, 준비물처럼 오늘 행동에 필요한 정보만 전면에 둡니다.
+          등교 전 확인할 급식, 시간표, 하교 시간, 준비물을 중심으로 보여줍니다.
         </p>
       </section>
     </aside>
@@ -35,7 +35,7 @@
             <h2 class="panel-title">오늘 확인</h2>
             <p class="panel-subtitle">아침에 가장 먼저 볼 정보입니다.</p>
           </div>
-          <span class="badge primary">GET /student/school-life</span>
+          <span class="badge primary">오늘 정보</span>
         </div>
 
         <div class="metric-grid spaced">

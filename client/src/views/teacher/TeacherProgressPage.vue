@@ -23,10 +23,10 @@
       </section>
 
       <section class="panel dark">
-        <p class="eyebrow">Stored By Backend</p>
-        <h2 class="panel-title">기록 출처</h2>
+        <p class="eyebrow">Learning Memory</p>
+        <h2 class="panel-title">누적 관찰 메모</h2>
         <p class="panel-subtitle">
-          스캐폴딩 추천을 실행하면 서버가 Feedback 테이블에 관찰, 분석, 추천 결과를 저장합니다.
+          저장된 피드백은 다음 추천을 만들 때 학생의 반응 패턴과 지원 이력으로 함께 반영됩니다.
         </p>
       </section>
     </aside>
@@ -115,16 +115,19 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ClipboardList, TrendingUp } from 'lucide-vue-next'
-import { getStudentProgress } from '../../api'
+import { getStudentProgress, mapLevelToKorean } from '../../api'
 
 const loading = ref(false)
 const feedbacks = ref([])
-const progressSummary = ref('최근 피드백을 불러오는 중입니다.')
 const selectedId = ref(null)
 
 const orderedFeedbacks = computed(() => [...feedbacks.value].reverse())
 const selectedFeedback = computed(() => feedbacks.value.find((feedback) => feedback.id === selectedId.value) || orderedFeedbacks.value[0] || null)
-const latestLevel = computed(() => selectedFeedback.value?.llm_analysis?.detected_level || 'medium')
+const latestLevel = computed(() => selectedFeedback.value?.llm_analysis?.detected_level || '중')
+const progressSummary = computed(() => {
+  const count = feedbacks.value.length
+  return count > 0 ? `총 ${count}개의 피드백 기록이 있습니다.` : '아직 누적된 피드백 기록이 없습니다.'
+})
 
 const metrics = computed(() => [
   { label: '총 기록', value: feedbacks.value.length, caption: 'Feedback rows' },
@@ -150,8 +153,8 @@ const recommendationText = computed(() => {
 })
 
 function levelLabel(level) {
-  const map = { high: '높음', medium: '중간', low: '낮음', 상: '높음', 중: '중간', 하: '낮음' }
-  return map[level] || level || '대기'
+  const mapped = mapLevelToKorean(level)
+  return mapped != null && mapped !== '' ? mapped : '대기'
 }
 
 function formatDate(value) {
@@ -174,7 +177,6 @@ async function loadProgress() {
   try {
     const progress = await getStudentProgress()
     feedbacks.value = progress.feedbacks || []
-    progressSummary.value = progress.progress_summary || '아직 피드백 데이터가 없습니다.'
     selectedId.value = orderedFeedbacks.value[0]?.id || null
   } finally {
     loading.value = false

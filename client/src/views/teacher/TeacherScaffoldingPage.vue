@@ -4,17 +4,17 @@
       <section class="panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Student</p>
+            <p class="eyebrow">Student Profile</p>
             <h2 class="panel-title">{{ studentName }}</h2>
-            <p class="panel-subtitle">학생 맥락은 추천 요청과 함께 서버에서 반영됩니다.</p>
           </div>
           <div class="panel-icon">
             <UserRoundCog />
           </div>
         </div>
+        <p class="panel-subtitle student-profile-subtitle">학생의 기본 특성과 현재 수준을 바탕으로 추천 방향을 잡습니다.</p>
 
-        <div class="list-stack spaced">
-          <div v-for="item in studentProfile" :key="item.label" class="card-row">
+        <div class="list-stack spaced student-context-list">
+          <div v-for="item in studentProfile" :key="item.label" class="card-row student-context-row">
             <strong>{{ item.label }}</strong>
             <span>{{ item.value }}</span>
           </div>
@@ -24,10 +24,14 @@
       <section class="panel">
         <p class="eyebrow">Past Feedback</p>
         <h2 class="panel-title">최근 기록 반영</h2>
-        <p class="panel-subtitle">선택한 피드백 ID는 추천 요청의 맥락으로 보낼 수 있습니다.</p>
+        <p class="panel-subtitle">최근 관찰 기록을 함께 참고해 반복되는 어려움과 반응을 반영합니다.</p>
 
         <div class="list-stack spaced">
-          <label v-for="feedback in feedbacks.slice(-3).reverse()" :key="feedback.id" class="card-row">
+          <label
+            v-for="feedback in feedbacks.slice(-3).reverse()"
+            :key="feedback.id"
+            class="card-row feedback-context-row"
+          >
             <strong>{{ formatDate(feedback.created_at) }}</strong>
             <span>{{ feedback.teacher_description || feedback.performance || '기록 내용 없음' }}</span>
           </label>
@@ -41,9 +45,9 @@
           <div>
             <p class="eyebrow">Observation Input</p>
             <h2 class="panel-title">스캐폴딩 추천 입력</h2>
-            <p class="panel-subtitle">관찰 문장과 과목 정보를 서버의 추천 API로 전송합니다.</p>
+            <p class="panel-subtitle">수업 중 관찰한 상황을 적으면 바로 적용할 지원 방향을 정리합니다.</p>
           </div>
-          <span class="badge primary">POST /rag</span>
+          <span class="badge primary">맞춤 추천</span>
         </div>
 
         <div class="mini-grid spaced">
@@ -80,15 +84,34 @@
 
       <section class="panel" v-if="recommendation">
         <div class="result-level">
-          <p>감지된 지원 수준</p>
-          <strong>{{ levelLabel(recommendation.recommended_level) }}</strong>
-          <p>{{ recommendation.rationale }}</p>
+          <div class="result-level-header">
+            <div>
+              <p class="result-kicker">감지된 지원 수준</p>
+              <strong class="result-level-mark">{{ levelLabel(recommendation.recommended_level) }}</strong>
+            </div>
+          </div>
+
+          <div class="result-report-grid">
+            <article class="result-report-block result-report-block-primary">
+              <span>평가 요약</span>
+              <p>{{ detailLevelSemantics }}</p>
+              <p v-if="detailRationaleSections.assessment">{{ detailRationaleSections.assessment }}</p>
+            </article>
+            <article v-if="detailRationaleSections.gap" class="result-report-block">
+              <span>주요 학습 격차</span>
+              <p>{{ detailRationaleSections.gap }}</p>
+            </article>
+            <article v-if="detailRationaleSections.standard" class="result-report-block result-report-block-wide">
+              <span>근거 성취기준</span>
+              <p>{{ detailRationaleSections.standard }}</p>
+            </article>
+          </div>
         </div>
 
         <div class="strategy-grid spaced">
-          <article v-for="strategy in strategies" :key="strategy" class="strategy-card">
-            <strong>{{ strategy }}</strong>
-            <p>수업 장면에서 바로 실행할 수 있는 단위로 정리했습니다.</p>
+          <article v-for="(strategy, index) in strategies" :key="strategy" class="strategy-card strategy-card-labeled">
+            <strong class="strategy-card-heading">추천 전략 {{ index + 1 }}</strong>
+            <p class="strategy-card-copy">{{ strategy }}</p>
           </article>
         </div>
       </section>
@@ -96,7 +119,7 @@
       <section class="panel" v-else>
         <div class="empty-state">
           <strong>추천 결과가 아직 없습니다.</strong>
-          <p>관찰 기록을 입력하고 추천을 실행하면 수준, 전략, 활동, 근거가 이 화면에 나타납니다.</p>
+          <p>관찰 기록을 입력하면 추천 수준, 지원 전략, 활동, 근거 기준을 한 번에 확인할 수 있습니다.</p>
         </div>
       </section>
 
@@ -120,15 +143,15 @@
 
     <aside class="column-stack">
       <section class="panel dark">
-        <p class="eyebrow">Recommendation Logic</p>
-        <h2 class="panel-title">서버 연계 흐름</h2>
-        <p class="panel-subtitle">이 화면에서 실행하면 백엔드가 추천을 만들고 피드백 기록에도 저장합니다.</p>
+        <p class="eyebrow">Recommendation Flow</p>
+        <h2 class="panel-title">추천 구성 방식</h2>
+        <p class="panel-subtitle">입력한 관찰 기록을 학생 특성, 지난 피드백, 성취기준과 함께 보며 수업 지원 방향을 정리합니다.</p>
 
         <div class="list-stack spaced">
-          <div class="dark-list-item">1. 학생 프로필 조회</div>
-          <div class="dark-list-item">2. 관찰 기록 RAG 분석</div>
-          <div class="dark-list-item">3. 성취기준 근거 연결</div>
-          <div class="dark-list-item">4. 추천 결과 피드백 저장</div>
+          <div class="dark-list-item">1. 학생 특성 확인</div>
+          <div class="dark-list-item">2. 최근 관찰 기록 반영</div>
+          <div class="dark-list-item">3. 관련 성취기준 확인</div>
+          <div class="dark-list-item">4. 수업 전략과 활동 제안</div>
         </div>
       </section>
 
@@ -141,7 +164,7 @@
         </div>
         <div v-else class="empty-state spaced">
           <strong>기준 대기</strong>
-          <p>추천 실행 후 가장 관련도 높은 기준이 표시됩니다.</p>
+          <p>학생 상태와 가장 가까운 성취기준이 여기에 표시됩니다.</p>
         </div>
       </section>
 
@@ -162,7 +185,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { UserRoundCog } from 'lucide-vue-next'
-import { getScaffoldingRecommendation, getStudentProgress } from '../../api'
+import { getScaffoldingRecommendation, getStudentProgress, mapLevelToKorean } from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
@@ -177,7 +200,7 @@ const form = reactive({
     '수 모형을 보여주면 덧셈 활동을 시작하지만, 받아올림 단계에서 멈추고 도움 요청을 하지 못합니다.',
 })
 
-const studentName = computed(() => studentStore.student?.name || '나의 아이')
+const studentName = computed(() => studentStore.student?.name || '이지훈')
 const studentProfile = computed(() => [
   { label: '현재 수준', value: studentStore.student?.current_level || '초등 3학년 수준 입력 대기' },
   { label: '장애 유형', value: studentStore.student?.disability_type || '정보 없음' },
@@ -200,15 +223,73 @@ const activities = computed(() =>
 )
 
 const standard = computed(() => recommendation.value?.achievement_standard || null)
+const detailLevelSemantics = computed(() => levelSemantics(recommendation.value?.recommended_level))
+const detailRationaleSections = computed(() =>
+  parseRationaleSections(recommendation.value?.rationale, detailLevelSemantics.value),
+)
 const relatedStandards = computed(() =>
   recommendation.value?.related_achievement_standards?.length
     ? recommendation.value.related_achievement_standards
-    : ['추천 실행 후 관련 성취기준 후보가 여기에 표시됩니다.'],
+    : ['추천과 함께 참고할 성취기준이 여기에 표시됩니다.'],
 )
 
 function levelLabel(level) {
-  const map = { high: '높음', medium: '중간', low: '낮음', 상: '높음', 중: '중간', 하: '낮음' }
-  return map[level] || level || '대기'
+  const mapped = mapLevelToKorean(level)
+  return mapped != null && mapped !== '' ? mapped : '대기'
+}
+
+function levelSemantics(level) {
+  const mapped = mapLevelToKorean(level)
+  const key = String(mapped || '').trim()
+  if (key === '중')
+    return '중: 시각적 단서와 단계별 안내를 병행하면 과제를 이어가기 쉬운 수준입니다.'
+  if (key === '상')
+    return '상: 상대적으로 독립 수행에 가깝고, 확인 질문·선택지 중심의 가벼운 지원으로 충분한 경우가 많습니다.'
+  if (key === '하')
+    return '하: 세분화된 시각·구체 자료와 짧은 단계의 안내가 필요한 수준입니다.'
+  return '추천 수준에 따른 지원 강도입니다.'
+}
+
+function parseRationaleSections(text, semanticText = '') {
+  const sections = {
+    assessment: '',
+    gap: '',
+    standard: '',
+  }
+  let current = 'assessment'
+
+  String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !/^신뢰도\s*[:：]/.test(line))
+    .forEach((line) => {
+      if (semanticText && line === semanticText.trim()) return
+
+      const gapMatch = line.match(/^주요 학습 격차\s*[:：]\s*(.*)$/)
+      if (gapMatch) {
+        current = 'gap'
+        sections.gap = appendSentence(sections.gap, gapMatch[1])
+        return
+      }
+
+      const standardMatch = line.match(/^관련 성취기준\s*[:：]\s*(.*)$/)
+      if (standardMatch) {
+        current = 'standard'
+        sections.standard = appendSentence(sections.standard, standardMatch[1])
+        return
+      }
+
+      if (/^[상중하]\s*[:：]/.test(line)) return
+      sections[current] = appendSentence(sections[current], line)
+    })
+
+  return sections
+}
+
+function appendSentence(base, next) {
+  const value = String(next || '').trim()
+  if (!value) return base
+  return base ? `${base} ${value}` : value
 }
 
 function formatDate(value) {

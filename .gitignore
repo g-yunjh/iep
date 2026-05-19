@@ -3,19 +3,30 @@
 Thumbs.db
 
 # Frontend dependencies and build output
+node_modules/
+dist/
 client/node_modules/
 client/dist/
 client/.env
 client/.env.local
 client/.env.*.local
+mock/node_modules/
+mock/dist/
+mock/.env
+mock/.env.local
 
 # Backend virtual environments and Python cache
 **/__pycache__/
 **/*.py[cod]
 **/*$py.class
 server/.venv/
+server/.venv311/
 server/venv/
 server/env/
+.venv/
+.venv311/
+venv/
+env/
 
 # Environment variables / secrets
 .env

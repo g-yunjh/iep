@@ -5,8 +5,8 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Today</p>
-            <h2 class="panel-title">오늘 학교생활</h2>
-            <p class="panel-subtitle">학교에서 받은 기본 정보를 집에서 보기 좋게 정리했습니다.</p>
+            <h2 class="panel-title">오늘의 학교생활</h2>
+            <p class="panel-subtitle">오늘 학교에서 확인해야 할 일정과 준비 정보를 모아 보여줍니다.</p>
           </div>
           <div class="panel-icon">
             <CalendarDays />
@@ -22,17 +22,6 @@
 
         <RouterLink to="/parent/school" class="btn ghost spaced-sm">학교생활 상세</RouterLink>
       </section>
-
-      <section class="panel">
-        <p class="eyebrow">Child Profile</p>
-        <h2 class="panel-title">{{ studentStore.student?.name || '나의 아이' }}</h2>
-        <div class="list-stack spaced">
-          <div v-for="row in profileRows" :key="row.label" class="card-row">
-            <strong>{{ row.label }}</strong>
-            <span>{{ row.value }}</span>
-          </div>
-        </div>
-      </section>
     </aside>
 
     <main class="column-stack">
@@ -41,7 +30,7 @@
           <div>
             <p class="eyebrow">Home Support</p>
             <h2 class="panel-title">오늘 집에서 이어갈 일</h2>
-            <p class="panel-subtitle">교사용 기록을 가정에서 바로 해볼 수 있는 문장으로 바꿔 보여줍니다.</p>
+            <p class="panel-subtitle">학교에서 효과가 있었던 지원을 집에서도 이어갈 수 있게 정리했습니다.</p>
           </div>
           <span class="badge primary">가정 지원</span>
         </div>
@@ -71,9 +60,9 @@
         </div>
 
         <div class="strategy-grid spaced">
-          <article v-for="change in recentChanges" :key="change" class="strategy-card">
-            <strong>{{ change }}</strong>
-            <p>학교와 집에서 같은 방식으로 이어가면 변화가 더 안정적으로 보입니다.</p>
+          <article v-for="(change, index) in recentChanges" :key="change" class="strategy-card strategy-card-labeled">
+            <strong class="strategy-card-heading">변화 기록 {{ index + 1 }}</strong>
+            <p class="strategy-card-copy">{{ change }}</p>
           </article>
         </div>
       </section>
@@ -84,7 +73,7 @@
         <p class="eyebrow">Parent View</p>
         <h2 class="panel-title">학부모에게 필요한 정보</h2>
         <p class="panel-subtitle">
-          성취기준 원문이나 RAG 내부 결과보다, 오늘 일정과 집에서 할 행동을 먼저 보이게 구성했습니다.
+          학교생활, 최근 변화, 집에서 이어갈 지원을 먼저 확인할 수 있도록 정리했습니다.
         </p>
       </section>
 
@@ -133,7 +122,7 @@ import { useStudentStore } from '../../composables/useStudentStore'
 const { state: studentStore } = useStudentStore()
 
 const schoolLife = ref({})
-const progress = ref({ feedbacks: [], progress_summary: '' })
+const progress = ref({ feedbacks: [] })
 
 const todayCards = computed(() => [
   { label: '점심', value: schoolLife.value.lunch_menu || '정보 없음' },
@@ -148,8 +137,11 @@ const profileRows = computed(() => [
   { label: '특성', value: studentStore.student?.behavioral_traits || '가정 특성 입력 필요' },
 ])
 
-const progressSummary = computed(() => progress.value.progress_summary || '최근 피드백을 불러오는 중입니다.')
 const feedbacks = computed(() => progress.value.feedbacks || [])
+const progressSummary = computed(() => {
+  const count = feedbacks.value.length
+  return count > 0 ? `총 ${count}개의 피드백 기록이 있습니다.` : '아직 누적된 피드백 기록이 없습니다.'
+})
 const recentChanges = computed(() => {
   if (!feedbacks.value.length) {
     return ['그림 단서가 있을 때 집중 시간이 늘어납니다.', '활동 전환 전 예고가 있으면 불안이 줄어듭니다.']

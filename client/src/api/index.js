@@ -5,9 +5,158 @@ const apiClient = axios.create({
   timeout: 10000,
 })
 
+/** 서버 레벨 토큰 → UI용 한글 (상·중·하) */
+const LEVEL_EN_TO_KO = { high: '상', medium: '중', low: '하' }
+
+export function mapLevelToKorean(level) {
+  if (level == null || level === '') return null
+  const raw = String(level).trim()
+  const key = raw.toLowerCase()
+  if (LEVEL_EN_TO_KO[key]) return LEVEL_EN_TO_KO[key]
+  if (['상', '중', '하'].includes(raw)) return raw
+  return raw
+}
+
+export function mapLevelTokensInString(text) {
+  if (typeof text !== 'string') return text
+  return text.replace(/\bhigh\b/gi, '상').replace(/\bmedium\b/gi, '중').replace(/\blow\b/gi, '하')
+}
+
+function normalizeScaffoldingDetailsBlock(details) {
+  if (!details || typeof details !== 'object') return details
+  const next = { ...details }
+  if (next.level != null) next.level = mapLevelToKorean(next.level) ?? next.level
+  if (typeof next.description === 'string') next.description = mapLevelTokensInString(next.description)
+  if (Array.isArray(next.strategies)) {
+    next.strategies = next.strategies.map((s) => (typeof s === 'string' ? mapLevelTokensInString(s) : s))
+  }
+  if (Array.isArray(next.activities)) {
+    next.activities = next.activities.map((a) => {
+      if (!a || typeof a !== 'object') return a
+      const act = { ...a }
+      if (typeof act.name === 'string') act.name = mapLevelTokensInString(act.name)
+      if (typeof act.description === 'string') act.description = mapLevelTokensInString(act.description)
+      return act
+    })
+  }
+  return next
+}
+
+function pickAchievementStandardForScaffolding(ach) {
+  if (!ach || typeof ach !== 'object') return ach
+  const keys = ['standard_id', 'standard_text', 'grade', 'subject', 'disability_type', 'relevance_score']
+  const out = {}
+  for (const k of keys) {
+    if (ach[k] !== undefined) out[k] = ach[k]
+  }
+  return Object.keys(out).length ? out : ach
+}
+
+function normalizeScaffoldingRecommendations(rec) {
+  if (rec == null) return rec
+  if (typeof rec === 'string') return mapLevelTokensInString(rec)
+  const next = { ...rec }
+  if (next.recommended_level != null) next.recommended_level = mapLevelToKorean(next.recommended_level) ?? next.recommended_level
+  if (typeof next.rationale === 'string') next.rationale = mapLevelTokensInString(next.rationale)
+  if (typeof next.additional_notes === 'string') next.additional_notes = mapLevelTokensInString(next.additional_notes)
+  if (next.scaffolding_details) next.scaffolding_details = normalizeScaffoldingDetailsBlock(next.scaffolding_details)
+  if (next.achievement_standard) {
+    next.achievement_standard = pickAchievementStandardForScaffolding({ ...next.achievement_standard })
+  }
+  return next
+}
+
+function normalizeFeedbackItem(fb) {
+  if (!fb || typeof fb !== 'object') return fb
+  const next = { ...fb }
+  if (typeof next.performance === 'string') next.performance = mapLevelTokensInString(next.performance)
+  if (next.llm_analysis && typeof next.llm_analysis === 'object') {
+    next.llm_analysis = { ...next.llm_analysis }
+    if (next.llm_analysis.detected_level != null) {
+      next.llm_analysis.detected_level = mapLevelToKorean(next.llm_analysis.detected_level) ?? next.llm_analysis.detected_level
+    }
+    if (typeof next.llm_analysis.analysis_summary === 'string') {
+      next.llm_analysis.analysis_summary = mapLevelTokensInString(next.llm_analysis.analysis_summary)
+    }
+    if (Array.isArray(next.llm_analysis.learning_gaps)) {
+      next.llm_analysis.learning_gaps = next.llm_analysis.learning_gaps.map((g) =>
+        typeof g === 'string' ? mapLevelTokensInString(g) : g,
+      )
+    }
+    if (Array.isArray(next.llm_analysis.recommended_strategies)) {
+      next.llm_analysis.recommended_strategies = next.llm_analysis.recommended_strategies.map((s) =>
+        typeof s === 'string' ? mapLevelTokensInString(s) : s,
+      )
+    }
+  }
+  if (next.scaffolding_recommendations != null) {
+    next.scaffolding_recommendations = normalizeScaffoldingRecommendations(next.scaffolding_recommendations)
+  }
+  return next
+}
+
+function normalizeProgressPayload(data) {
+  if (!data || typeof data !== 'object') return data
+  const out = {
+    ...data,
+    feedbacks: (data.feedbacks || []).map(normalizeFeedbackItem),
+  }
+  if (typeof out.progress_summary === 'string') {
+    out.progress_summary = mapLevelTokensInString(out.progress_summary)
+  }
+  return out
+}
+
+function normalizeScaffoldingApiResponse(data) {
+  if (!data || typeof data !== 'object') return data
+  const next = { ...data }
+  if (next.recommended_level != null) next.recommended_level = mapLevelToKorean(next.recommended_level) ?? next.recommended_level
+  if (typeof next.rationale === 'string') next.rationale = mapLevelTokensInString(next.rationale)
+  if (next.scaffolding_details) next.scaffolding_details = normalizeScaffoldingDetailsBlock(next.scaffolding_details)
+  if (next.achievement_standard) {
+    next.achievement_standard = pickAchievementStandardForScaffolding({ ...next.achievement_standard })
+  }
+  if (Array.isArray(next.related_achievement_standards)) {
+    next.related_achievement_standards = next.related_achievement_standards.map((item) =>
+      typeof item === 'string' ? mapLevelTokensInString(item) : item,
+    )
+  }
+  if (typeof next.additional_notes === 'string') next.additional_notes = mapLevelTokensInString(next.additional_notes)
+  return next
+}
+
+function normalizeCareerGapItem(gap) {
+  if (!gap || typeof gap !== 'object') return gap
+  const out = {
+    job_title: gap.job_title,
+    gap_skills: gap.gap_skills ?? gap.missing_skills ?? [],
+    development_suggestions: gap.development_suggestions ?? gap.development_paths ?? [],
+  }
+  return out
+}
+
+function normalizeCareerRecommendationPayload(data) {
+  if (!data || typeof data !== 'object') return data
+  const next = { ...data }
+  if (Array.isArray(next.recommended_careers)) {
+    next.recommended_careers = next.recommended_careers.map((c) => {
+      if (!c || typeof c !== 'object') return c
+      return {
+        job_title: c.job_title,
+        category: c.category,
+        match_score: typeof c.match_score === 'number' ? c.match_score : Number(c.score) || 0,
+      }
+    })
+  }
+  if (Array.isArray(next.skill_gaps)) {
+    next.skill_gaps = next.skill_gaps.map(normalizeCareerGapItem)
+  }
+  return next
+}
+
 const sampleStudent = {
   id: 1,
-  name: '나의 아이',
+  name: '이지훈',
   disability_type: '자폐 스펙트럼',
   additional_diagnoses: 'ADHD',
   current_level: '초등 3학년 수준 읽기/쓰기 보조 필요',
@@ -18,62 +167,139 @@ const sampleProgress = {
   feedbacks: [
     {
       id: 1,
+      performance: 'AI 분석: 중 수준',
+      scaffolding_effectiveness: 'AI 추천 적용 전',
+      disability_type: '자폐성 장애',
       teacher_description: '읽기 시간에 집중이 흐트러졌지만 짧은 지시에는 잘 반응함',
-      llm_analysis: { detected_level: 'medium' },
+      llm_analysis: {
+        detected_level: '중',
+        learning_gaps: ['한 번에 여러 지시를 처리하는 데 어려움', '과제 전환 시 예고 없이 바뀌면 멈춤'],
+        recommended_strategies: ['한 문장·한 단계 지시', '시각 일정표로 전환 예고', '완료 직후 구체적 강화'],
+        confidence_score: 0.88,
+        analysis_summary: '짧고 예측 가능한 지시가 주어질 때 참여도가 높아집니다.',
+      },
+      scaffolding_recommendations: {
+        recommended_level: '중',
+        rationale: '짧은 지시와 시각 단서 제공 시 과제 지속 시간이 늘어납니다.',
+        scaffolding_details: {
+          level: '중',
+          description: '언어적 안내와 시각적 힌트를 병행합니다.',
+          activities: [
+            {
+              name: '핵심 문장 찾기',
+              description: '짧은 문단에서 핵심 문장을 색 스티커로 표시합니다.',
+              duration: '15분',
+              materials: ['기본 교재', '색 스티커'],
+            },
+          ],
+          strategies: ['한 번에 한 단계 지시', '시각 일정표 제시', '성공 즉시 강화 피드백'],
+        },
+        achievement_standard: {
+          grade: '3',
+          subject: '국어',
+          standard_text: '중심 내용을 짐작하고 듣거나 읽은 내용을 다른 표현으로 나타낼 수 있다.',
+          relevance_score: 0.72,
+        },
+        additional_notes: '가정에서도 동일한 지시 방식을 유지하면 전환이 안정됩니다.',
+      },
       created_at: '2026-04-21T09:30:00',
     },
     {
       id: 2,
+      performance: 'AI 분석: 상 수준',
+      scaffolding_effectiveness: '시각 자료 적용 후',
+      disability_type: '자폐성 장애',
       teacher_description: '수학 활동에서 시각 자료를 활용하니 참여도가 높아짐',
-      llm_analysis: { detected_level: 'high' },
+      llm_analysis: {
+        detected_level: '상',
+        learning_gaps: ['복잡한 언어 설명만 있을 때 시작이 늦음'],
+        recommended_strategies: ['수 모형·그림 단서 먼저 제시', '문제를 두 단계로 나누기'],
+        confidence_score: 0.81,
+        analysis_summary: '구체적 자료가 먼저 제시되면 스스로 절차를 이어가는 경향이 있습니다.',
+      },
+      scaffolding_recommendations: {
+        recommended_level: '상',
+        rationale: '시각 자료와 구조화된 순서가 있으면 독립에 가까운 수행이 가능합니다.',
+        scaffolding_details: {
+          level: '상',
+          description: '확인 질문과 선택지 중심으로 최소 개입을 유지합니다.',
+          activities: [
+            {
+              name: '스스로 순서 말하기',
+              description: '풀이 후 스스로 단계를 말로 정리하게 합니다.',
+              duration: '10분',
+              materials: ['학습지'],
+            },
+          ],
+          strategies: ['완료 후 요약 질문', '틀렸을 때 힌트 한 가지만 제시'],
+        },
+        achievement_standard: {
+          grade: '3',
+          subject: '수학',
+          standard_text: '덧셈과 뺄셈의 의미를 이해하고 다양한 방법으로 계산할 수 있다.',
+          relevance_score: 0.68,
+        },
+        additional_notes: '전문가 상담 권고 등 추가 메모가 있으면 기록에 남깁니다.',
+      },
       created_at: '2026-04-23T10:10:00',
     },
   ],
-  progress_summary: '최근 시각적 단서 제공 시 학습 몰입도가 향상되고 있습니다.',
+  progress_summary: '',
 }
+
+const FIXED_TOMORROW_PREP = ['체육복', '색연필', '국어 공책']
 
 const sampleSchoolLife = {
-  lunch_menu: '된장국, 닭갈비, 계절나물, 밥',
-  dismissal_time: '15:30',
+  lunch_menu: '참치야채비빔밥, 북어국, 갈릭미트볼야채볶음, 고구마맛탕, 백김치, 우유컵케익',
+  dismissal_time: '16:15',
   academic_calendar: '일정 없음',
-  today_timetable: ['국어', '수학', '미술'],
-  tomorrow_prep: ['체육복', '색연필', '국어 공책'],
+  today_timetable: ['종교와 삶Ⅰ', '수학', '음악', '기술·가정', '사회', '과학', '(창)자율·자치활동'],
+  tomorrow_prep: FIXED_TOMORROW_PREP,
 }
 
-const sampleScaffolding = {
-  recommended_level: 'medium',
-  rationale: '짧은 지시와 시각 단서 제공 시 과제 지속 시간이 늘어납니다.',
+const sampleScaffolding = normalizeScaffoldingApiResponse({
+  recommended_level: '하',
+  rationale:
+    "학생의 현재 능력 수준을 '하'로 평가. 주요 학습 격차: 실생활 문제 연산 도출, 세로셈 자릿값 계산 등. 신뢰도: 0.72",
   scaffolding_details: {
-    level: 'medium',
-    description: '언어적 안내와 시각적 힌트를 병행합니다.',
-    strategies: ['한 번에 한 단계 지시', '시각 일정표 제시', '성공 즉시 강화 피드백'],
+    level: '하',
+    description:
+      '문제 해결을 돕는 삽화나 도식을 활용하여 이해 지원; 식 도출을 중점으로 지도하며 계산 방법은 학생의 자율성 존중',
     activities: [
       {
-        name: '핵심 문장 찾기',
-        description: '짧은 문단에서 핵심 문장을 색 스티커로 표시합니다.',
-        duration: '15분',
+        name: '교육과정 활동 1',
+        description: '거스름돈 계산이나 물건 수 합산 문제를 짧은 단계로 나누어 반복 연습',
       },
+      {
+        name: '교육과정 활동 2',
+        description: '실생활 상황을 보고 연산 식을 도출하기를 짧은 단계로 나누어 반복 연습',
+      },
+      {
+        name: '교육과정 활동 3',
+        description: '구체물로 상황을 재현하고 전체/남은 수를 구하기를 짧은 단계로 나누어 반복 연습',
+      },
+    ],
+    strategies: [
+      '세로셈 지도 시 자릿값 위치를 시각적으로 가이드 함',
+      '구체물 10개 묶음을 더하거나 빼며 전체 개수 확인',
+      '문제 해결을 돕는 삽화나 도식을 활용하여 이해 지원',
+      '식 도출을 중점으로 지도하며 계산 방법은 학생의 자율성 존중',
     ],
   },
   achievement_standard: {
-    standard_id: '3수학01-01',
-    grade: '초3',
-    subject: '수학',
-    disability_type: '자폐 스펙트럼',
-    standard_text: '두 자리 수의 덧셈과 뺄셈 과정을 시각 자료와 함께 설명할 수 있다.',
-    diagnostic_criteria: ['시각 자료를 활용한 연산 과정 설명', '단계별 도움 요청'],
-    activities: ['수 모형으로 받아올림 설명하기', '그림 단서로 풀이 순서 정리하기'],
-    scaffolding_levels: { high: '독립 수행', medium: '언어·시각 단서', low: '모델링 제공' },
-    scaffolding_bank_general: ['한 단계 지시', '즉각 강화', '시각 일정표'],
-    scaffolding_bank_disability_specific: { '자폐 스펙트럼': '예측 가능한 순서와 그림 단서를 먼저 제공합니다.' },
-    relevance_score: 0.82,
+    standard_id: '6수학01-08',
+    standard_text: '받아올림(내림)이 없는 몇십의 덧셈, 뺄셈과 관련된 실생활 문제를 해결한다.',
+    grade: '6',
+    subject: 'math',
+    disability_type: '중도중복장애',
+    relevance_score: 0.5676,
   },
   related_achievement_standards: [
-    '국어: 핵심 낱말의 의미를 문맥에서 파악한다.',
-    '수학: 수 모형을 활용해 연산 과정을 나타낸다.',
+    '[6수학01-08] 받아올림(내림)이 없는 몇십의 덧셈, 뺄셈과 관련된 실생활 문제를 해결한다. (관련도 0.57)',
+    '[6수학01-07] 받아올림(내림)이 없는 몇십의 덧셈과 뺄셈을 한다. (관련도 0.56)',
+    '[4수학01-03] 9 이하의 수를 읽고 쓴다. (관련도 0.52)',
   ],
-  additional_notes: '수업 적용 후 반응을 피드백 기록에 남기면 다음 추천에 반영됩니다.',
-}
+})
 
 const sampleCurriculumResults = {
   query: '',
@@ -120,41 +346,42 @@ const sampleCareerSearch = {
   ],
 }
 
-const sampleCareerRecommendation = {
+const sampleCareerRecommendation = normalizeCareerRecommendationPayload({
   current_skills: '손작업과 순서 기억이 안정적이며 시각 자료를 활용한 활동에 오래 참여합니다.',
   recommended_careers: [
-    {
-      job_id: 'sample-baker',
-      job_title: '제과제빵사',
-      category: '음식 서비스',
-      match_score: 0.82,
-      required_skills: ['손의 정교함', '순서 기억', '위생 절차'],
-      outlook: '반복 루틴과 손작업 강점을 작은 체험으로 연결할 수 있습니다.',
-    },
+    { job_title: '캐릭터디자이너', category: '예술분야(전문직)', match_score: 0.508 },
+    { job_title: '화가', category: '예술분야(전문직)', match_score: 0.475 },
+    { job_title: '일러스트레이터', category: '예술분야(전문직)', match_score: 0.472 },
   ],
   skill_gaps: [
     {
-      job_title: '제과제빵사',
-      current_level: ['손작업', '순서 기억'],
-      required_level: ['도구 활용', '작업 절차 언어화'],
-      gap_skills: ['도구 활용', '작업 절차 언어화'],
-      development_suggestions: ['도구 이름 맞히기', '작업 순서를 그림 카드로 정리하기'],
+      job_title: '캐릭터디자이너',
+      gap_skills: ['손재능', '공간시각능력', '창의력', '기발한 발상', '컴퓨터 그래픽 지식'],
+      development_suggestions: [
+        '핵심 역량을 10~15분 단위 반복 과제로 나눠 연습',
+        '체크리스트 기반으로 과제 시작-중간-완료 단계를 시각화',
+        '주 1회 동일 과업 재수행으로 수행 정확도를 기록',
+      ],
+    },
+    {
+      job_title: '화가',
+      gap_skills: ['미적 감각', '색채 구성', '창의력'],
+      development_suggestions: ['짧은 스케치 루틴으로 관찰·표현 연습', '완성보다 과정 기록에 칭찬 집중'],
     },
   ],
   career_paths: [
     {
-      current_learning: '손작업과 순서 기억 활동',
-      target_career: '제과제빵사',
-      estimated_timeline: '장기 탐색',
+      target_career: '캐릭터디자이너',
+      estimated_timeline: '6~12개월',
       stages: [
-        { stage: '현재', description: '손작업과 순서 기억 활동' },
-        { stage: '단기', description: '도구 사용과 작업 순서 연습' },
-        { stage: '중기', description: '반복 작업 루틴과 위생 절차' },
-        { stage: '장기', description: '직무 체험과 현장 적응' },
+        { stage: '현재', focus: '현재 강점 파악', description: '직무 요구 역량과 현재 역량 비교' },
+        { stage: '단기(1~3개월)', focus: '핵심 기초 역량 강화', description: '손재능·공간시각능력·창의력 중심 반복 과제' },
+        { stage: '중기(3~6개월)', focus: '실습 기반 적용', description: '체크리스트 기반 모의/현장 실습' },
+        { stage: '장기(6개월+)', focus: '직무 전환 및 유지', description: '실제 업무 환경 역할 확장 + 피드백 루프' },
       ],
     },
   ],
-}
+})
 
 function withFallback(requestFn, fallbackData) {
   return requestFn().catch(() => fallbackData)
@@ -186,15 +413,24 @@ export function patchStudentTraits(payload) {
 }
 
 export function getStudentProgress() {
-  return withFallback(async () => (await apiClient.get('/student/progress')).data, sampleProgress)
+  return withFallback(async () => {
+    const data = (await apiClient.get('/student/progress')).data
+    return normalizeProgressPayload(data)
+  }, normalizeProgressPayload(sampleProgress))
 }
 
 export function getSchoolLife() {
-  return withFallback(async () => (await apiClient.get('/student/school-life')).data, sampleSchoolLife)
+  return withFallback(async () => {
+    const data = (await apiClient.get('/student/school-life')).data
+    return { ...(data && typeof data === 'object' ? data : {}), tomorrow_prep: FIXED_TOMORROW_PREP }
+  }, { ...sampleSchoolLife, tomorrow_prep: FIXED_TOMORROW_PREP })
 }
 
 export function getScaffoldingRecommendation(payload) {
-  return withFallback(async () => (await apiClient.post('/rag/scaffolding-recommendation', payload)).data, sampleScaffolding)
+  return withFallback(async () => {
+    const data = (await apiClient.post('/rag/scaffolding-recommendation', payload)).data
+    return normalizeScaffoldingApiResponse(data)
+  }, sampleScaffolding)
 }
 
 export function searchCurriculum(query, params = {}) {
@@ -217,8 +453,11 @@ export function searchCareer(query, params = {}) {
 }
 
 export function getCareerRecommendation(payload) {
-  return withFallback(
-    async () => (await apiClient.post('/rag/career-recommendation', payload)).data,
-    { ...sampleCareerRecommendation, current_skills: payload?.current_skills || sampleCareerRecommendation.current_skills },
-  )
+  return withFallback(async () => {
+    const data = (await apiClient.post('/rag/career-recommendation', payload)).data
+    return normalizeCareerRecommendationPayload(data)
+  }, {
+    ...sampleCareerRecommendation,
+    current_skills: payload?.current_skills || sampleCareerRecommendation.current_skills,
+  })
 }
