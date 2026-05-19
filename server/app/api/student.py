@@ -56,7 +56,7 @@ def _get_or_create_persona_student(db: Session) -> models.Student:
     if student:
         return student
 
-    student = models.Student(name="나의 아이")
+    student = models.Student(name="이지훈")
     db.add(student)
     db.commit()
     db.refresh(student)
