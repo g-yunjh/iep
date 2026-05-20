@@ -12,10 +12,16 @@
         </div>
       </div>
 
-      <div class="topbar-actions">
+      <form class="topbar-actions" @submit.prevent="runGlobalSearch">
         <label class="global-search">
           <Search class="search-icon" />
-          <input type="search" :placeholder="header.search" />
+          <input
+            v-model="globalSearchQuery"
+            type="search"
+            :placeholder="header.search"
+            @keydown.enter.prevent="runGlobalSearch"
+            @search="runGlobalSearch"
+          />
         </label>
         <RouterLink
           v-for="mode in roleModes"
@@ -25,10 +31,11 @@
         >
           {{ mode.label }}
         </RouterLink>
-        <RouterLink :to="header.ctaTo" class="primary-action">
-          {{ header.cta }}
-        </RouterLink>
-      </div>
+      </form>
+
+      <RouterLink :to="alternateRoleMode.to" class="mobile-role-switch">
+        {{ alternateRoleMode.label }}
+      </RouterLink>
     </header>
 
     <div class="workspace">
@@ -37,10 +44,10 @@
           v-for="item in navItems"
           :key="item.to"
           :to="item.to"
+          :aria-label="item.label"
           :class="['rail-item', route.path === item.to && 'is-active']"
         >
           <component :is="item.icon" />
-          <span>{{ item.label }}</span>
         </RouterLink>
         <div class="rail-avatar">{{ isTeacherRoute ? '지훈' : '지훈' }}</div>
       </aside>
@@ -66,8 +73,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   BarChart3,
   BookOpenCheck,
@@ -93,7 +100,9 @@ import teacherCriteriaSvg from './assets/icons/criteria.svg?raw'
 import teacherRecordSvg from './assets/icons/record.svg?raw'
 
 const route = useRoute()
+const router = useRouter()
 const { state: studentStore, loadStudent } = useStudentStore()
+const globalSearchQuery = ref('')
 
 const isTeacherRoute = computed(() => route.path.startsWith('/teacher'))
 
@@ -120,72 +129,54 @@ const headers = {
     title: '대시보드',
     copy: '관찰 기록을 바탕으로 한 AI 스캐폴딩 추천과 근거 기준, 학생 성장 흐름을 한눈에 확인합니다.',
     search: '학생, 성취기준, 피드백 검색',
-    cta: '추천 작성',
-    ctaTo: '/teacher/scaffolding',
   },
   '/teacher/scaffolding': {
     eyebrow: '교사용 워크벤치 · 추천 상세 화면',
     title: 'AI 스캐폴딩 추천',
     copy: '관찰 기록을 입력하고 학생 맥락과 과거 피드백을 반영해 지원 전략을 생성합니다.',
     search: '학생, 피드백, 추천 기록 검색',
-    cta: '추천 생성',
-    ctaTo: '/teacher/scaffolding',
   },
   '/teacher/curriculum': {
     eyebrow: '교사용 워크벤치 · 기준 상세 화면',
     title: '성취기준 근거 검색',
     copy: '국어와 수학 성취기준을 검색하고 AI 추천의 근거로 사용할 기준을 선택합니다.',
     search: '성취기준, 과목, 키워드 검색',
-    cta: '기준 검색',
-    ctaTo: '/teacher/curriculum',
   },
   '/teacher/progress': {
     eyebrow: '교사용 워크벤치 · 기록 상세 화면',
     title: '피드백 기록과 성장 흐름',
     copy: 'AI 추천 실행 후 저장된 피드백을 학생별 타임라인과 요약으로 확인합니다.',
     search: '날짜, 수준, 피드백 검색',
-    cta: '기록 보기',
-    ctaTo: '/teacher/progress',
   },
   '/teacher/career': {
     eyebrow: '교사용 워크벤치 · 진로 상세 화면',
     title: '강점 기반 진로 추천',
     copy: '학생의 현재 역량과 관심 단서를 바탕으로 진로 후보와 역량 격차를 확인합니다.',
     search: '직업, 강점, 역량 검색',
-    cta: '진로 탐색',
-    ctaTo: '/teacher/career',
   },
   '/parent/overview': {
     eyebrow: '학부모용 워크벤치',
     title: '대시보드',
     copy: '학교생활 정보와 최근 피드백을 쉬운 문장으로 보고, 집에서 바로 해볼 일을 확인합니다.',
     search: '학교생활, 강점, 진로 검색',
-    cta: '기록 보기',
-    ctaTo: '/parent/overview',
   },
   '/parent/school': {
     eyebrow: '학부모용 워크벤치',
     title: '학교생활 상세',
     copy: '급식, 시간표, 하교 시간, 내일 준비를 빠르게 확인합니다.',
     search: '급식, 시간표, 일정 검색',
-    cta: '새로고침',
-    ctaTo: '/parent/school',
   },
   '/parent/traits': {
     eyebrow: '학부모용 워크벤치',
     title: '아이 특성 관리',
     copy: '가정에서 보이는 강점과 어려움을 기록해 학교와 같은 지원 방향을 맞춥니다.',
     search: '특성, 행동, 수준 검색',
-    cta: '특성 저장',
-    ctaTo: '/parent/traits',
   },
   '/parent/career': {
     eyebrow: '학부모용 워크벤치',
     title: '강점과 진로',
     copy: '아이의 강점과 좋아하는 활동을 부담 없는 진로 대화로 연결합니다.',
     search: '관심 활동, 직업 검색',
-    cta: '탐색',
-    ctaTo: '/parent/career',
   },
 }
 
@@ -195,6 +186,45 @@ const roleModes = computed(() => [
   { to: '/teacher/overview', label: '교사용', active: isTeacherRoute.value },
   { to: '/parent/overview', label: '학부모용', active: !isTeacherRoute.value },
 ])
+
+const roleSwitchTargets = {
+  '/teacher/overview': '/parent/overview',
+  '/teacher/career': '/parent/career',
+  '/parent/overview': '/teacher/overview',
+  '/parent/career': '/teacher/career',
+}
+
+const alternateRoleMode = computed(() => ({
+  to: roleSwitchTargets[route.path] || (isTeacherRoute.value ? '/parent/overview' : '/teacher/overview'),
+  label: isTeacherRoute.value ? '학부모용' : '교사용',
+}))
+
+function getSearchTargetPath(query = '') {
+  if (route.path.includes('/career')) return isTeacherRoute.value ? '/teacher/career' : '/parent/career'
+  if (route.path === '/teacher/progress') return '/teacher/progress'
+  if (route.path === '/teacher/curriculum') return '/teacher/curriculum'
+  if (isTeacherRoute.value) {
+    if (/진로|직업|강점|역량|관심|활동/.test(query)) return '/teacher/career'
+    if (/피드백|기록|수준|날짜|변화/.test(query)) return '/teacher/progress'
+    return '/teacher/curriculum'
+  }
+  return '/parent/career'
+}
+
+function runGlobalSearch() {
+  const q = globalSearchQuery.value.trim()
+  const targetPath = getSearchTargetPath(q)
+  const nextQuery = q ? { q } : {}
+  router.push({ path: targetPath, query: nextQuery })
+}
+
+watch(
+  () => route.query.q,
+  (q) => {
+    globalSearchQuery.value = typeof q === 'string' ? q : ''
+  },
+  { immediate: true },
+)
 
 onMounted(loadStudent)
 </script>

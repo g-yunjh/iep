@@ -4,9 +4,9 @@
       <section class="panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Search Filters</p>
+            <p class="eyebrow">기준 찾기</p>
             <h2 class="panel-title">성취기준 검색</h2>
-            <p class="panel-subtitle">수학과 국어 기준을 같은 형식으로 검색합니다.</p>
+            <p class="panel-subtitle">관찰 문장이나 수업 키워드를 입력해 오늘 수업과 가까운 기준을 찾습니다.</p>
           </div>
           <div class="panel-icon">
             <SlidersHorizontal />
@@ -44,10 +44,10 @@
       </section>
 
       <section class="panel dark">
-        <p class="eyebrow">What Matters</p>
-        <h2 class="panel-title">교사용 화면에 남긴 기능</h2>
+        <p class="eyebrow">수업 연결</p>
+        <h2 class="panel-title">기준을 목표로 좁히기</h2>
         <p class="panel-subtitle">
-          기준 원문, 과목/학년, 관련도, 선택 기준만 보여주고 벡터스토어 내부 정보는 숨겼습니다.
+          찾은 기준을 그대로 쓰기보다 학생이 오늘 보일 수 있는 행동으로 작게 나누어 활용합니다.
         </p>
       </section>
     </aside>
@@ -56,11 +56,10 @@
       <section class="panel elevated">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Curriculum Results</p>
+            <p class="eyebrow">찾은 성취기준</p>
             <h2 class="panel-title">검색 결과 {{ results.length }}개</h2>
-            <p class="panel-subtitle">결과를 선택하면 오른쪽에서 수업 목표로 정리됩니다.</p>
+            <p class="panel-subtitle">가장 가까운 기준을 선택해 수업 목표와 관찰 포인트를 정리합니다.</p>
           </div>
-          <span class="badge primary">GET /rag/curriculum-search</span>
         </div>
 
         <div v-if="results.length" class="list-stack spaced">
@@ -73,7 +72,7 @@
           >
             <code>{{ standardCode(item, index) }}</code>
             <div>
-              <strong>{{ compactContent(item.content) }}</strong>
+              <strong>{{ standardText(item) }}</strong>
               <p>{{ subjectLabel(item.metadata?.subject) }} · {{ item.metadata?.grade || '학년 정보 없음' }}</p>
             </div>
             <span class="mono">{{ scoreText(item.score) }}</span>
@@ -91,8 +90,8 @@
       <section class="panel">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Selected Standard</p>
-            <h2 class="panel-title">선택 기준</h2>
+            <p class="eyebrow">기준 상세</p>
+            <h2 class="panel-title">선택한 기준</h2>
           </div>
           <div class="panel-icon">
             <BookOpenCheck />
@@ -100,9 +99,21 @@
         </div>
 
         <template v-if="selectedResult">
-          <div class="callout spaced">
-            <strong>{{ standardCode(selectedResult, selectedIndex) }}</strong>
-            <p>{{ selectedResult.content }}</p>
+          <div class="selected-standard-card spaced">
+            <div class="selected-standard-meta">
+              <span>{{ standardCode(selectedResult, selectedIndex) }}</span>
+              <span>{{ subjectLabel(selectedResult.metadata?.subject) }}</span>
+              <span>{{ selectedResult.metadata?.grade || '학년 정보 없음' }}</span>
+            </div>
+            <h3>성취기준</h3>
+            <p>{{ standardText(selectedResult) }}</p>
+          </div>
+
+          <div v-if="selectedFocusItems.length" class="selected-standard-card spaced-sm">
+            <h3>수업에서 확인할 행동</h3>
+            <ul class="clean-dot-list">
+              <li v-for="item in selectedFocusItems" :key="item">{{ item }}</li>
+            </ul>
           </div>
 
           <div class="mini-grid spaced">
@@ -121,16 +132,16 @@
 
         <div v-else class="empty-state spaced">
           <strong>선택 기준 없음</strong>
-          <p>검색 결과를 선택하면 이곳에 기준 원문과 메타정보가 표시됩니다.</p>
+          <p>검색 결과를 선택하면 기준 원문과 수업에서 볼 행동이 정리됩니다.</p>
         </div>
       </section>
 
       <section class="panel">
-        <p class="eyebrow">Classroom Use</p>
+        <p class="eyebrow">수업 메모</p>
         <h2 class="panel-title">수업 적용 메모</h2>
         <div class="list-stack spaced">
           <div v-for="memo in lessonMemos" :key="memo" class="mini-card">
-            <strong>적용 포인트</strong>
+            <strong>활용 방법</strong>
             <p>{{ memo }}</p>
           </div>
         </div>
@@ -140,12 +151,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { BookOpenCheck, SlidersHorizontal } from 'lucide-vue-next'
 import { searchCurriculum } from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
+const route = useRoute()
 
 const loading = ref(false)
 const results = ref([])
@@ -158,15 +171,26 @@ const filters = reactive({
 })
 
 const selectedResult = computed(() => results.value[selectedIndex.value] || null)
+const routeSearchQuery = computed(() => (typeof route.query.q === 'string' ? route.query.q.trim() : ''))
 
 const lessonMemos = [
-  '기준 원문을 그대로 목표 문장에 쓰기보다 오늘 수업 행동으로 좁혀 사용합니다.',
-  '추천 결과와 맞지 않는 기준은 교사가 선택하지 않고 다시 검색합니다.',
-  '국어와 수학 기준은 같은 카드 구조로 보여 비교가 쉽도록 했습니다.',
+  '학생이 오늘 보일 수 있는 행동 하나를 골라 수업 목표로 사용합니다.',
+  '기준이 넓게 느껴지면 활동이나 관찰 포인트를 하나만 선택해 기록합니다.',
+  '추천 결과와 맞지 않으면 다른 기준을 선택하거나 검색어를 더 구체적으로 바꿉니다.',
 ]
 
-function compactContent(content = '') {
-  return content.length > 96 ? `${content.slice(0, 96)}...` : content
+const selectedFocusItems = computed(() => {
+  const content = selectedResult.value?.content || ''
+  return [
+    ...extractSectionItems(content, '학습 목표'),
+    ...extractSectionItems(content, '활동'),
+  ].slice(0, 4)
+})
+
+function standardText(item) {
+  const content = String(item?.content || '')
+  const match = content.match(/성취기준\s*:\s*(.+)/)
+  return (match?.[1] || content).trim()
 }
 
 function standardCode(item, index) {
@@ -181,6 +205,27 @@ function subjectLabel(subject) {
 function scoreText(score) {
   if (typeof score !== 'number') return '-'
   return score.toFixed(2)
+}
+
+function extractSectionItems(content, sectionTitle) {
+  const lines = String(content || '').split('\n')
+  const items = []
+  let inSection = false
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) continue
+    if (line.startsWith(`${sectionTitle}:`)) {
+      inSection = true
+      continue
+    }
+    if (inSection && /^[가-힣A-Za-z ]+:$/.test(line) && !line.startsWith('-')) break
+    if (inSection && line.startsWith('-')) {
+      items.push(line.replace(/^-\s*/, '').trim())
+    }
+  }
+
+  return items
 }
 
 async function runSearch() {
@@ -200,7 +245,14 @@ async function runSearch() {
 }
 
 onMounted(async () => {
+  if (routeSearchQuery.value) filters.query = routeSearchQuery.value
   filters.disability_type = studentStore.student?.disability_type || ''
+  await runSearch()
+})
+
+watch(routeSearchQuery, async (query) => {
+  if (!query || query === filters.query) return
+  filters.query = query
   await runSearch()
 })
 </script>

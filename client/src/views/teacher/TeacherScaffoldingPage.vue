@@ -89,6 +89,9 @@
               <p class="result-kicker">감지된 지원 수준</p>
               <strong class="result-level-mark">{{ levelLabel(recommendation.recommended_level) }}</strong>
             </div>
+            <span v-if="detailConfidence" class="result-confidence">
+              신뢰도 {{ detailConfidence }}
+            </span>
           </div>
 
           <div class="result-report-grid">
@@ -99,7 +102,20 @@
             </article>
             <article v-if="detailRationaleSections.gap" class="result-report-block">
               <span>주요 학습 격차</span>
-              <p>{{ detailRationaleSections.gap }}</p>
+              <template v-if="gapItems.length">
+                <ul class="compact-list result-compact-list">
+                  <li v-for="item in visibleGapItems" :key="item">{{ item }}</li>
+                </ul>
+                <button
+                  v-if="gapItems.length > SUMMARY_LIMIT"
+                  type="button"
+                  class="inline-more-button result-more-button"
+                  @click="showAllGaps = !showAllGaps"
+                >
+                  {{ showAllGaps ? '접기' : `+ ${gapItems.length - SUMMARY_LIMIT}개 더 보기` }}
+                </button>
+              </template>
+              <p v-else>{{ detailRationaleSections.gap }}</p>
             </article>
             <article v-if="detailRationaleSections.standard" class="result-report-block result-report-block-wide">
               <span>근거 성취기준</span>
@@ -133,11 +149,19 @@
         </div>
 
         <div class="strategy-grid spaced">
-          <article v-for="activity in activities" :key="activity.name || activity" class="strategy-card">
+          <article v-for="activity in visibleActivities" :key="activity.name || activity" class="strategy-card">
             <strong>{{ activity.name || activity }}</strong>
             <p>{{ activity.description || '학생 반응에 따라 도움 강도를 조절하며 진행합니다.' }}</p>
           </article>
         </div>
+        <button
+          v-if="activities.length > SUMMARY_LIMIT"
+          type="button"
+          class="inline-more-button spaced-sm"
+          @click="showAllActivities = !showAllActivities"
+        >
+          {{ showAllActivities ? '추천 활동 접기' : `추천 활동 ${activities.length - SUMMARY_LIMIT}개 더 보기` }}
+        </button>
       </section>
     </main>
 
@@ -185,7 +209,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { UserRoundCog } from 'lucide-vue-next'
-import { getScaffoldingRecommendation, getStudentProgress, mapLevelToKorean } from '../../api'
+import {
+  buildScaffoldingPresentation,
+  getScaffoldingRecommendation,
+  getStudentProgress,
+  mapLevelToKorean,
+} from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
@@ -193,6 +222,9 @@ const { state: studentStore } = useStudentStore()
 const loading = ref(false)
 const recommendation = ref(null)
 const feedbacks = ref([])
+const showAllGaps = ref(false)
+const showAllActivities = ref(false)
+const SUMMARY_LIMIT = 3
 const form = reactive({
   grade: '초등학교 3학년',
   subject: '수학',
@@ -222,11 +254,21 @@ const activities = computed(() =>
       ],
 )
 
+const gapItems = computed(() => splitDisplayItems(detailRationaleSections.value?.gap))
+const visibleGapItems = computed(() =>
+  showAllGaps.value ? gapItems.value : gapItems.value.slice(0, SUMMARY_LIMIT),
+)
+const visibleActivities = computed(() =>
+  showAllActivities.value ? activities.value : activities.value.slice(0, SUMMARY_LIMIT),
+)
+
 const standard = computed(() => recommendation.value?.achievement_standard || null)
 const detailLevelSemantics = computed(() => levelSemantics(recommendation.value?.recommended_level))
 const detailRationaleSections = computed(() =>
-  parseRationaleSections(recommendation.value?.rationale, detailLevelSemantics.value),
+  recommendation.value?.presentation ||
+  buildScaffoldingPresentation(recommendation.value, recommendation.value?.llm_analysis),
 )
+const detailConfidence = computed(() => detailRationaleSections.value?.confidence || '')
 const relatedStandards = computed(() =>
   recommendation.value?.related_achievement_standards?.length
     ? recommendation.value.related_achievement_standards
@@ -250,46 +292,43 @@ function levelSemantics(level) {
   return '추천 수준에 따른 지원 강도입니다.'
 }
 
-function parseRationaleSections(text, semanticText = '') {
-  const sections = {
-    assessment: '',
-    gap: '',
-    standard: '',
-  }
-  let current = 'assessment'
+function splitDisplayItems(text) {
+  const value = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/^\s*(?:[-*•·]|\d+[.)])\s*/gm, '|')
+    .replace(/\s+(?:[-*•·]|\d+[.)])\s+/g, '|')
+    .replace(/\s*([?!])\s*,+\s*/g, '$1|')
+    .replace(/([?!])\s+(?=[가-힣A-Za-z0-9])/g, '$1|')
+    .replace(/\s*\.\s*,+\s*/g, '.|')
+    .replace(/다\.\s+/g, '다.|')
+    .replace(/\.\s+(?=[가-힣A-Za-z0-9])/g, '.|')
+    .replace(/\s+·\s+/g, '|')
+    .replace(/\n+/g, '|')
+    .trim()
+  if (!value) return []
 
-  String(text || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !/^신뢰도\s*[:：]/.test(line))
-    .forEach((line) => {
-      if (semanticText && line === semanticText.trim()) return
-
-      const gapMatch = line.match(/^주요 학습 격차\s*[:：]\s*(.*)$/)
-      if (gapMatch) {
-        current = 'gap'
-        sections.gap = appendSentence(sections.gap, gapMatch[1])
-        return
-      }
-
-      const standardMatch = line.match(/^관련 성취기준\s*[:：]\s*(.*)$/)
-      if (standardMatch) {
-        current = 'standard'
-        sections.standard = appendSentence(sections.standard, standardMatch[1])
-        return
-      }
-
-      if (/^[상중하]\s*[:：]/.test(line)) return
-      sections[current] = appendSentence(sections[current], line)
-    })
-
-  return sections
+  const items = value.split('|').flatMap(splitCommaItems).map(cleanListItem).filter(Boolean)
+  return [...new Set(items)]
 }
 
-function appendSentence(base, next) {
-  const value = String(next || '').trim()
-  if (!value) return base
-  return base ? `${base} ${value}` : value
+function splitCommaItems(item) {
+  const value = cleanListItem(item)
+  if (!value) return []
+  const parts = value.split(/\s*,\s+/).map(cleanListItem).filter(Boolean)
+  if (parts.length > 1 && parts.every((part) => part.length >= 6)) return parts
+  return [value]
+}
+
+function cleanListItem(item) {
+  return String(item || '')
+    .trim()
+    .replace(/^(?:[-*•·]\s*|\d+[.)]\s*)+/, '')
+    .replace(/^['"“”‘’]+|['"“”‘’]+$/g, '')
+    .replace(/\s*([?!])\s*,+$/g, '$1')
+    .replace(/\s*\.\s*,+$/g, '.')
+    .replace(/[,;:\s]+$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
 }
 
 function formatDate(value) {
@@ -305,6 +344,8 @@ function resetDraft() {
 async function requestRecommendation() {
   loading.value = true
   try {
+    showAllGaps.value = false
+    showAllActivities.value = false
     recommendation.value = await getScaffoldingRecommendation({ ...form })
     const progressData = await getStudentProgress()
     feedbacks.value = progressData.feedbacks || []
