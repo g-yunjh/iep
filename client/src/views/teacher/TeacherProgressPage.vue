@@ -37,14 +37,16 @@
           <div>
             <p class="eyebrow">Feedback Timeline</p>
             <h2 class="panel-title">피드백 기록</h2>
-            <p class="panel-subtitle">최근 기록을 선택하면 오른쪽에서 추천 원문을 확인합니다.</p>
+            <p class="panel-subtitle">
+              {{ searchQuery ? `'${searchQuery}' 검색 결과 ${visibleFeedbacks.length}개` : '최근 기록을 선택하면 오른쪽에서 추천 원문을 확인합니다.' }}
+            </p>
           </div>
           <button class="btn ghost" type="button" :disabled="loading" @click="loadProgress">새로고침</button>
         </div>
 
-        <div v-if="feedbacks.length" class="list-stack spaced">
+        <div v-if="visibleFeedbacks.length" class="list-stack spaced">
           <button
-            v-for="(feedback, index) in orderedFeedbacks"
+            v-for="(feedback, index) in visibleFeedbacks"
             :key="feedback.id || index"
             type="button"
             :class="['timeline-row', selectedId === feedback.id && 'is-selected']"
@@ -58,8 +60,8 @@
         </div>
 
         <div v-else class="empty-state spaced">
-          <strong>아직 저장된 피드백이 없습니다.</strong>
-          <p>추천 화면에서 AI 추천을 실행하면 이곳에 기록이 쌓입니다.</p>
+          <strong>{{ searchQuery ? '검색 결과가 없습니다.' : '아직 저장된 피드백이 없습니다.' }}</strong>
+          <p>{{ searchQuery ? '다른 날짜, 수준, 피드백 문장으로 다시 검색해보세요.' : '추천 화면에서 AI 추천을 실행하면 이곳에 기록이 쌓입니다.' }}</p>
         </div>
       </section>
     </main>
@@ -113,16 +115,29 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ClipboardList, TrendingUp } from 'lucide-vue-next'
 import { getStudentProgress, mapLevelToKorean } from '../../api'
 
 const loading = ref(false)
 const feedbacks = ref([])
 const selectedId = ref(null)
+const route = useRoute()
 
 const orderedFeedbacks = computed(() => [...feedbacks.value].reverse())
-const selectedFeedback = computed(() => feedbacks.value.find((feedback) => feedback.id === selectedId.value) || orderedFeedbacks.value[0] || null)
+const searchQuery = computed(() => (typeof route.query.q === 'string' ? route.query.q.trim() : ''))
+const visibleFeedbacks = computed(() => {
+  const q = searchQuery.value.toLowerCase()
+  if (!q) return orderedFeedbacks.value
+  return orderedFeedbacks.value.filter((feedback) => feedbackMatches(feedback, q))
+})
+const selectedFeedback = computed(() =>
+  feedbacks.value.find((feedback) => feedback.id === selectedId.value) ||
+  visibleFeedbacks.value[0] ||
+  orderedFeedbacks.value[0] ||
+  null,
+)
 const latestLevel = computed(() => selectedFeedback.value?.llm_analysis?.detected_level || '중')
 const progressSummary = computed(() => {
   const count = feedbacks.value.length
@@ -152,6 +167,21 @@ const recommendationText = computed(() => {
   return rec.rationale || rec.additional_notes || rec.scaffolding_details?.description || ''
 })
 
+function feedbackMatches(feedback, query) {
+  const fields = [
+    feedback.teacher_description,
+    feedback.performance,
+    feedback.scaffolding_effectiveness,
+    feedback.disability_type,
+    feedback.llm_analysis?.detected_level,
+    feedback.llm_analysis?.analysis_summary,
+    ...(feedback.llm_analysis?.learning_gaps || []),
+    feedback.scaffolding_recommendations?.rationale,
+    feedback.created_at,
+  ]
+  return fields.some((field) => String(field || '').toLowerCase().includes(query))
+}
+
 function levelLabel(level) {
   const mapped = mapLevelToKorean(level)
   return mapped != null && mapped !== '' ? mapped : '대기'
@@ -177,11 +207,15 @@ async function loadProgress() {
   try {
     const progress = await getStudentProgress()
     feedbacks.value = progress.feedbacks || []
-    selectedId.value = orderedFeedbacks.value[0]?.id || null
+    selectedId.value = visibleFeedbacks.value[0]?.id || orderedFeedbacks.value[0]?.id || null
   } finally {
     loading.value = false
   }
 }
+
+watch(searchQuery, () => {
+  selectedId.value = visibleFeedbacks.value[0]?.id || orderedFeedbacks.value[0]?.id || null
+})
 
 onMounted(loadProgress)
 </script>

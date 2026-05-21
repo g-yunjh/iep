@@ -96,8 +96,8 @@
           >
             <span class="step-dot">{{ index + 1 }}</span>
             <strong>{{ stage.stage }}</strong>
-            <p v-if="stage.focus">{{ stage.focus }}</p>
-            <p>{{ stage.description }}</p>
+            <p v-if="stage.focus" class="path-stage-focus">{{ stage.focus }}</p>
+            <p :class="['path-stage-description', !stage.focus && 'is-alone']">{{ stage.description }}</p>
           </div>
         </div>
         <div v-else class="empty-state spaced">
@@ -110,18 +110,21 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { HeartHandshake } from 'lucide-vue-next'
 import { getCareerRecommendation, searchCareer } from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
+const route = useRoute()
 
 const loading = ref(false)
 const currentSkills = ref('손작업과 순서 기억이 안정적이고, 그림 자료를 보면 활동을 오래 지속합니다.')
 const interests = ref('요리, 만들기, 정리')
 const careerRecommendation = ref(null)
 const searchResults = ref([])
+const routeSearchQuery = computed(() => (typeof route.query.q === 'string' ? route.query.q.trim() : ''))
 
 const recommendedCareers = computed(() =>
   careerRecommendation.value?.recommended_careers?.length
@@ -167,8 +170,20 @@ async function recommendCareer() {
   }
 }
 
-onMounted(async () => {
+async function refreshCareerSearch() {
   const response = await searchCareer(currentSkills.value, { current_skills: currentSkills.value, k: 3 })
   searchResults.value = response.results || []
+}
+
+watch(routeSearchQuery, async (query) => {
+  if (!query || query === currentSkills.value) return
+  currentSkills.value = query
+  await refreshCareerSearch()
+  await recommendCareer()
+})
+
+onMounted(async () => {
+  if (routeSearchQuery.value) currentSkills.value = routeSearchQuery.value
+  await refreshCareerSearch()
 })
 </script>

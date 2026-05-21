@@ -137,7 +137,20 @@
                 </article>
                 <article v-if="rationaleSections.gap" class="result-report-block">
                   <span>주요 학습 격차</span>
-                  <p>{{ rationaleSections.gap }}</p>
+                  <template v-if="gapItems.length">
+                    <ul class="compact-list result-compact-list">
+                      <li v-for="item in visibleGapItems" :key="item">{{ item }}</li>
+                    </ul>
+                    <button
+                      v-if="gapItems.length > SUMMARY_LIMIT"
+                      type="button"
+                      class="inline-more-button result-more-button"
+                      @click="showAllGaps = !showAllGaps"
+                    >
+                      {{ showAllGaps ? '접기' : `+ ${gapItems.length - SUMMARY_LIMIT}개 더 보기` }}
+                    </button>
+                  </template>
+                  <p v-else>{{ rationaleSections.gap }}</p>
                 </article>
                 <article v-if="rationaleSections.standard" class="result-report-block result-report-block-wide">
                   <span>근거 성취기준</span>
@@ -173,7 +186,7 @@
         <template v-if="quickRecommendation">
           <div class="strategy-grid spaced gap-y-6">
             <article
-              v-for="activity in activities"
+              v-for="activity in visibleActivities"
               :key="activity.name || activity"
               class="strategy-card space-y-3 py-4 leading-relaxed"
             >
@@ -183,6 +196,14 @@
               </p>
             </article>
           </div>
+          <button
+            v-if="activities.length > SUMMARY_LIMIT"
+            type="button"
+            class="inline-more-button spaced-sm"
+            @click="showAllActivities = !showAllActivities"
+          >
+            {{ showAllActivities ? '추천 활동 접기' : `추천 활동 ${activities.length - SUMMARY_LIMIT}개 더 보기` }}
+          </button>
         </template>
 
         <div v-else class="empty-state spaced">
@@ -252,7 +273,12 @@ import { RouterLink } from 'vue-router'
 import {
   UserRoundCheck,
 } from 'lucide-vue-next'
-import { getScaffoldingRecommendation, getStudentProgress, mapLevelToKorean } from '../../api'
+import {
+  buildScaffoldingPresentation,
+  getScaffoldingRecommendation,
+  getStudentProgress,
+  mapLevelToKorean,
+} from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
@@ -263,6 +289,9 @@ const observationDraft = ref(
 const progress = ref({ feedbacks: [], progress_summary: '' })
 const quickRecommendation = ref(null)
 const loadingRecommendation = ref(false)
+const showAllGaps = ref(false)
+const showAllActivities = ref(false)
+const SUMMARY_LIMIT = 3
 
 const recommendationForm = reactive({
   grade: '초등학교 3학년',
@@ -322,6 +351,14 @@ const activities = computed(() =>
       ],
 )
 
+const gapItems = computed(() => splitDisplayItems(rationaleSections.value?.gap))
+const visibleGapItems = computed(() =>
+  showAllGaps.value ? gapItems.value : gapItems.value.slice(0, SUMMARY_LIMIT),
+)
+const visibleActivities = computed(() =>
+  showAllActivities.value ? activities.value : activities.value.slice(0, SUMMARY_LIMIT),
+)
+
 const standard = computed(() => quickRecommendation.value?.achievement_standard || null)
 
 const primaryMatchPercent = computed(() =>
@@ -330,6 +367,8 @@ const primaryMatchPercent = computed(() =>
 
 const recommendationConfidence = computed(() => {
   const rec = quickRecommendation.value
+  if (rec?.presentation?.confidence) return rec.presentation.confidence
+
   const direct =
     rec?.confidence_score ??
     rec?.confidence ??
@@ -344,17 +383,9 @@ const recommendationConfidence = computed(() => {
   return match?.[1] || ''
 })
 
-const displayRationale = computed(() => {
-  const raw = String(quickRecommendation.value?.rationale || '')
-  return raw
-    .split('\n')
-    .filter((line) => !/^신뢰도\s*[:：]/.test(line.trim()))
-    .join('\n')
-    .trim()
-})
-
 const rationaleSections = computed(() =>
-  parseRationaleSections(displayRationale.value, levelSemantics(quickRecommendation.value?.recommended_level)),
+  quickRecommendation.value?.presentation ||
+  buildScaffoldingPresentation(quickRecommendation.value, quickRecommendation.value?.llm_analysis),
 )
 
 const evidenceList = computed(() => {
@@ -418,46 +449,43 @@ function stripRelatedScoreText(text) {
   return String(text || '').replace(/\s*\(관련도\s*[0-9]+(?:\.[0-9]+)?\)\s*$/g, '').trim()
 }
 
-function parseRationaleSections(text, semanticText = '') {
-  const sections = {
-    assessment: '',
-    gap: '',
-    standard: '',
-  }
-  let current = 'assessment'
+function splitDisplayItems(text) {
+  const value = String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/^\s*(?:[-*•·]|\d+[.)])\s*/gm, '|')
+    .replace(/\s+(?:[-*•·]|\d+[.)])\s+/g, '|')
+    .replace(/\s*([?!])\s*,+\s*/g, '$1|')
+    .replace(/([?!])\s+(?=[가-힣A-Za-z0-9])/g, '$1|')
+    .replace(/\s*\.\s*,+\s*/g, '.|')
+    .replace(/다\.\s+/g, '다.|')
+    .replace(/\.\s+(?=[가-힣A-Za-z0-9])/g, '.|')
+    .replace(/\s+·\s+/g, '|')
+    .replace(/\n+/g, '|')
+    .trim()
+  if (!value) return []
 
-  String(text || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .forEach((line) => {
-      if (semanticText && line === semanticText.trim()) return
-
-      const gapMatch = line.match(/^주요 학습 격차\s*[:：]\s*(.*)$/)
-      if (gapMatch) {
-        current = 'gap'
-        sections.gap = appendSentence(sections.gap, gapMatch[1])
-        return
-      }
-
-      const standardMatch = line.match(/^관련 성취기준\s*[:：]\s*(.*)$/)
-      if (standardMatch) {
-        current = 'standard'
-        sections.standard = appendSentence(sections.standard, standardMatch[1])
-        return
-      }
-
-      if (/^[상중하]\s*[:：]/.test(line)) return
-      sections[current] = appendSentence(sections[current], line)
-    })
-
-  return sections
+  const items = value.split('|').flatMap(splitCommaItems).map(cleanListItem).filter(Boolean)
+  return [...new Set(items)]
 }
 
-function appendSentence(base, next) {
-  const value = String(next || '').trim()
-  if (!value) return base
-  return base ? `${base} ${value}` : value
+function splitCommaItems(item) {
+  const value = cleanListItem(item)
+  if (!value) return []
+  const parts = value.split(/\s*,\s+/).map(cleanListItem).filter(Boolean)
+  if (parts.length > 1 && parts.every((part) => part.length >= 6)) return parts
+  return [value]
+}
+
+function cleanListItem(item) {
+  return String(item || '')
+    .trim()
+    .replace(/^(?:[-*•·]\s*|\d+[.)]\s*)+/, '')
+    .replace(/^['"“”‘’]+|['"“”‘’]+$/g, '')
+    .replace(/\s*([?!])\s*,+$/g, '$1')
+    .replace(/\s*\.\s*,+$/g, '.')
+    .replace(/[,;:\s]+$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
 }
 
 function levelSemantics(level) {
@@ -485,6 +513,8 @@ function formatDate(value) {
 async function createQuickRecommendation() {
   loadingRecommendation.value = true
   try {
+    showAllGaps.value = false
+    showAllActivities.value = false
     quickRecommendation.value = await getScaffoldingRecommendation({
       grade: recommendationForm.grade,
       subject: recommendationForm.subject,

@@ -62,6 +62,16 @@
           <span v-if="recommendedCareers.length" class="badge soft">{{ recommendedCareers.length }}건</span>
         </div>
 
+        <div v-if="loading" class="status-banner spaced-sm">
+          <strong>새 진로 추천을 생성 중입니다.</strong>
+          <p>입력한 역량을 바탕으로 직업, 역량 격차, 단계별 경로를 다시 정리하고 있습니다.</p>
+        </div>
+
+        <div v-if="errorMessage" class="status-banner error spaced-sm">
+          <strong>진로 추천을 불러오지 못했습니다.</strong>
+          <p>{{ errorMessage }}</p>
+        </div>
+
         <div v-if="loading && !recommendedCareers.length" class="empty-state spaced">
           <strong>진로 추천을 불러오는 중입니다.</strong>
         </div>
@@ -162,17 +172,21 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Sparkles } from 'lucide-vue-next'
 import { getCareerRecommendation } from '../../api'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
+const route = useRoute()
 
 const currentSkills = ref('손작업과 순서 기억이 안정적이며, 시각 자료를 활용한 활동에 오래 참여합니다.')
 const interestText = ref('그림 카드, 요리 활동, 반복 루틴')
 const careerRecommendation = ref(null)
 const selectedIndex = ref(0)
 const loading = ref(false)
+const errorMessage = ref('')
+const routeSearchQuery = computed(() => (typeof route.query.q === 'string' ? route.query.q.trim() : ''))
 
 const profileRows = computed(() => [
   { label: '현재 수준', value: studentStore.student?.current_level || '입력 대기' },
@@ -220,6 +234,7 @@ function percentText(score) {
 
 async function createRecommendation() {
   loading.value = true
+  errorMessage.value = ''
   try {
     careerRecommendation.value = await getCareerRecommendation({
       current_skills: currentSkills.value,
@@ -228,6 +243,9 @@ async function createRecommendation() {
       interests: interestText.value.split(',').map((item) => item.trim()).filter(Boolean),
     })
     selectedIndex.value = 0
+  } catch (error) {
+    errorMessage.value = '잠시 후 다시 시도해 주세요. 서버 연결 또는 AI 응답 시간이 길어졌을 수 있습니다.'
+    console.error(error)
   } finally {
     loading.value = false
   }
@@ -237,5 +255,14 @@ watch(recommendedCareers, (list) => {
   if (selectedIndex.value >= list.length) selectedIndex.value = 0
 })
 
-onMounted(createRecommendation)
+watch(routeSearchQuery, async (query) => {
+  if (!query || query === currentSkills.value) return
+  currentSkills.value = query
+  await createRecommendation()
+})
+
+onMounted(async () => {
+  if (routeSearchQuery.value) currentSkills.value = routeSearchQuery.value
+  await createRecommendation()
+})
 </script>

@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
-  timeout: 10000,
+  timeout: 180000,
 })
 
 /** 서버 레벨 토큰 → UI용 한글 (상·중·하) */
@@ -22,20 +22,162 @@ export function mapLevelTokensInString(text) {
   return text.replace(/\bhigh\b/gi, '상').replace(/\bmedium\b/gi, '중').replace(/\blow\b/gi, '하')
 }
 
+function cleanDisplayText(text) {
+  return mapLevelTokensInString(String(text || ''))
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.trim().replace(/^(?:[-*•·]\s*|\d+[.)]\s*)+/, ''))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s*([?!])\s*,+\s*/g, '$1 ')
+    .replace(/\s*\.\s*,\s*/g, '. ')
+    .replace(/\s*,\s*,+\s*/g, ', ')
+    .replace(/^[,;:\s]+|[,;:\s]+$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function appendTextFragment(base, next) {
+  const value = cleanDisplayText(next)
+  if (!value) return base
+  return base ? `${base} ${value}` : value
+}
+
+function normalizeRationaleForParsing(text) {
+  return mapLevelTokensInString(String(text || ''))
+    .replace(/\r\n?/g, '\n')
+    .replace(/\s*(?=(?:평가\s*요약|분석\s*요약|주요\s*학습\s*격차|관련\s*성취기준|근거\s*성취기준|신뢰도)\s*[:：])/g, '\n')
+    .split('\n')
+    .map((line) => line.trim().replace(/^(?:[-*•·]\s*|\d+[.)]\s*)+/, ''))
+    .filter(Boolean)
+}
+
+function formatConfidenceValue(value) {
+  if (value == null || value === '') return ''
+  const raw = String(value).trim()
+  if (!raw) return ''
+  if (raw.endsWith('%')) return raw
+  const numeric = Number(raw)
+  if (Number.isNaN(numeric)) return raw
+  return numeric <= 1 ? numeric.toFixed(2) : `${Math.round(numeric)}%`
+}
+
+function extractConfidenceFromText(text) {
+  const match = String(text || '').match(/신뢰도\s*[:：]\s*([0-9]+(?:\.[0-9]+)?%?)/)
+  return formatConfidenceValue(match?.[1])
+}
+
+function getLearningGapText(analysis, rec) {
+  const candidates = [
+    analysis?.learning_gaps,
+    rec?.learning_gaps,
+    rec?.analysis?.learning_gaps,
+  ]
+  const gapList = candidates.find((value) => Array.isArray(value) && value.length)
+  if (gapList) {
+    return gapList.map((item) => cleanDisplayText(item)).filter(Boolean).join(' · ')
+  }
+  return ''
+}
+
+function getStandardDisplayText(standard) {
+  if (!standard || typeof standard !== 'object') return ''
+  const text = standard.standard_text || standard.text || ''
+  if (!text) return ''
+  const id = standard.standard_id || standard.id
+  const cleanText = cleanDisplayText(text)
+  return id ? `[${id}] ${cleanText}` : cleanText
+}
+
+export function buildScaffoldingPresentation(rec, llmAnalysis = null) {
+  const sections = {
+    assessment: '',
+    gap: '',
+    standard: '',
+    confidence: '',
+  }
+
+  if (!rec || typeof rec !== 'object') return sections
+
+  const analysis = llmAnalysis || rec.llm_analysis || rec.analysis || {}
+  let current = 'assessment'
+
+  normalizeRationaleForParsing(rec.rationale).forEach((line) => {
+    const confidenceMatch = line.match(/^신뢰도\s*[:：]\s*(.*)$/)
+    if (confidenceMatch) {
+      sections.confidence = sections.confidence || formatConfidenceValue(confidenceMatch[1])
+      return
+    }
+
+    const assessmentMatch = line.match(/^(?:평가\s*요약|분석\s*요약)\s*[:：]\s*(.*)$/)
+    if (assessmentMatch) {
+      current = 'assessment'
+      sections.assessment = appendTextFragment(sections.assessment, assessmentMatch[1])
+      return
+    }
+
+    const gapMatch = line.match(/^주요\s*학습\s*격차\s*[:：]\s*(.*)$/)
+    if (gapMatch) {
+      current = 'gap'
+      sections.gap = appendTextFragment(sections.gap, gapMatch[1])
+      return
+    }
+
+    const standardMatch = line.match(/^(?:관련|근거)\s*성취기준\s*[:：]\s*(.*)$/)
+    if (standardMatch) {
+      current = 'standard'
+      sections.standard = appendTextFragment(sections.standard, standardMatch[1])
+      return
+    }
+
+    if (/^[상중하]\s*[:：]/.test(line)) {
+      sections.assessment = appendTextFragment(sections.assessment, line.replace(/^[상중하]\s*[:：]\s*/, ''))
+      return
+    }
+
+    sections[current] = appendTextFragment(sections[current], line)
+  })
+
+  if (!sections.assessment && typeof analysis.analysis_summary === 'string') {
+    sections.assessment = cleanDisplayText(analysis.analysis_summary)
+  }
+  if (!sections.gap) sections.gap = getLearningGapText(analysis, rec)
+  const standardDisplay = getStandardDisplayText(rec.achievement_standard)
+  if (standardDisplay) {
+    sections.standard = standardDisplay
+  } else {
+    sections.standard = cleanDisplayText(sections.standard)
+  }
+  sections.assessment = cleanDisplayText(sections.assessment)
+  sections.gap = cleanDisplayText(sections.gap)
+
+  const directConfidence =
+    rec.confidence_score ??
+    rec.confidence ??
+    analysis.confidence_score ??
+    analysis.confidence
+  sections.confidence =
+    sections.confidence ||
+    formatConfidenceValue(directConfidence) ||
+    extractConfidenceFromText(rec.rationale)
+
+  return sections
+}
+
 function normalizeScaffoldingDetailsBlock(details) {
   if (!details || typeof details !== 'object') return details
   const next = { ...details }
   if (next.level != null) next.level = mapLevelToKorean(next.level) ?? next.level
-  if (typeof next.description === 'string') next.description = mapLevelTokensInString(next.description)
+  if (typeof next.description === 'string') next.description = cleanDisplayText(next.description)
   if (Array.isArray(next.strategies)) {
-    next.strategies = next.strategies.map((s) => (typeof s === 'string' ? mapLevelTokensInString(s) : s))
+    next.strategies = next.strategies.map((s) => (typeof s === 'string' ? cleanDisplayText(s) : s))
   }
   if (Array.isArray(next.activities)) {
     next.activities = next.activities.map((a) => {
       if (!a || typeof a !== 'object') return a
       const act = { ...a }
-      if (typeof act.name === 'string') act.name = mapLevelTokensInString(act.name)
-      if (typeof act.description === 'string') act.description = mapLevelTokensInString(act.description)
+      if (typeof act.name === 'string') act.name = cleanDisplayText(act.name)
+      if (typeof act.description === 'string') act.description = cleanDisplayText(act.description)
       return act
     })
   }
@@ -52,45 +194,46 @@ function pickAchievementStandardForScaffolding(ach) {
   return Object.keys(out).length ? out : ach
 }
 
-function normalizeScaffoldingRecommendations(rec) {
+function normalizeScaffoldingRecommendations(rec, llmAnalysis = null) {
   if (rec == null) return rec
   if (typeof rec === 'string') return mapLevelTokensInString(rec)
   const next = { ...rec }
   if (next.recommended_level != null) next.recommended_level = mapLevelToKorean(next.recommended_level) ?? next.recommended_level
-  if (typeof next.rationale === 'string') next.rationale = mapLevelTokensInString(next.rationale)
-  if (typeof next.additional_notes === 'string') next.additional_notes = mapLevelTokensInString(next.additional_notes)
+  if (typeof next.rationale === 'string') next.rationale = cleanDisplayText(next.rationale)
+  if (typeof next.additional_notes === 'string') next.additional_notes = cleanDisplayText(next.additional_notes)
   if (next.scaffolding_details) next.scaffolding_details = normalizeScaffoldingDetailsBlock(next.scaffolding_details)
   if (next.achievement_standard) {
     next.achievement_standard = pickAchievementStandardForScaffolding({ ...next.achievement_standard })
   }
+  next.presentation = buildScaffoldingPresentation(next, llmAnalysis)
   return next
 }
 
 function normalizeFeedbackItem(fb) {
   if (!fb || typeof fb !== 'object') return fb
   const next = { ...fb }
-  if (typeof next.performance === 'string') next.performance = mapLevelTokensInString(next.performance)
+  if (typeof next.performance === 'string') next.performance = cleanDisplayText(next.performance)
   if (next.llm_analysis && typeof next.llm_analysis === 'object') {
     next.llm_analysis = { ...next.llm_analysis }
     if (next.llm_analysis.detected_level != null) {
       next.llm_analysis.detected_level = mapLevelToKorean(next.llm_analysis.detected_level) ?? next.llm_analysis.detected_level
     }
     if (typeof next.llm_analysis.analysis_summary === 'string') {
-      next.llm_analysis.analysis_summary = mapLevelTokensInString(next.llm_analysis.analysis_summary)
+      next.llm_analysis.analysis_summary = cleanDisplayText(next.llm_analysis.analysis_summary)
     }
     if (Array.isArray(next.llm_analysis.learning_gaps)) {
       next.llm_analysis.learning_gaps = next.llm_analysis.learning_gaps.map((g) =>
-        typeof g === 'string' ? mapLevelTokensInString(g) : g,
+        typeof g === 'string' ? cleanDisplayText(g) : g,
       )
     }
     if (Array.isArray(next.llm_analysis.recommended_strategies)) {
       next.llm_analysis.recommended_strategies = next.llm_analysis.recommended_strategies.map((s) =>
-        typeof s === 'string' ? mapLevelTokensInString(s) : s,
+        typeof s === 'string' ? cleanDisplayText(s) : s,
       )
     }
   }
   if (next.scaffolding_recommendations != null) {
-    next.scaffolding_recommendations = normalizeScaffoldingRecommendations(next.scaffolding_recommendations)
+    next.scaffolding_recommendations = normalizeScaffoldingRecommendations(next.scaffolding_recommendations, next.llm_analysis)
   }
   return next
 }
@@ -111,17 +254,18 @@ function normalizeScaffoldingApiResponse(data) {
   if (!data || typeof data !== 'object') return data
   const next = { ...data }
   if (next.recommended_level != null) next.recommended_level = mapLevelToKorean(next.recommended_level) ?? next.recommended_level
-  if (typeof next.rationale === 'string') next.rationale = mapLevelTokensInString(next.rationale)
+  if (typeof next.rationale === 'string') next.rationale = cleanDisplayText(next.rationale)
   if (next.scaffolding_details) next.scaffolding_details = normalizeScaffoldingDetailsBlock(next.scaffolding_details)
   if (next.achievement_standard) {
     next.achievement_standard = pickAchievementStandardForScaffolding({ ...next.achievement_standard })
   }
   if (Array.isArray(next.related_achievement_standards)) {
     next.related_achievement_standards = next.related_achievement_standards.map((item) =>
-      typeof item === 'string' ? mapLevelTokensInString(item) : item,
+      typeof item === 'string' ? cleanDisplayText(item) : item,
     )
   }
-  if (typeof next.additional_notes === 'string') next.additional_notes = mapLevelTokensInString(next.additional_notes)
+  if (typeof next.additional_notes === 'string') next.additional_notes = cleanDisplayText(next.additional_notes)
+  next.presentation = buildScaffoldingPresentation(next, next.llm_analysis)
   return next
 }
 
