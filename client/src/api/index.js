@@ -5,6 +5,11 @@ const apiClient = axios.create({
   timeout: 180000,
 })
 
+const DEFAULT_CURRICULUM_SUBJECTS = [
+  { slug: 'math', label: '수학' },
+  { slug: 'korean', label: '국어' },
+]
+
 /** 서버 레벨 토큰 → UI용 한글 (상·중·하) */
 const LEVEL_EN_TO_KO = { high: '상', medium: '중', low: '하' }
 
@@ -201,6 +206,9 @@ function normalizeScaffoldingRecommendations(rec, llmAnalysis = null) {
   if (next.recommended_level != null) next.recommended_level = mapLevelToKorean(next.recommended_level) ?? next.recommended_level
   if (typeof next.rationale === 'string') next.rationale = cleanDisplayText(next.rationale)
   if (typeof next.additional_notes === 'string') next.additional_notes = cleanDisplayText(next.additional_notes)
+  if (Array.isArray(next.teaching_points)) {
+    next.teaching_points = next.teaching_points.map((s) => (typeof s === 'string' ? cleanDisplayText(s) : s))
+  }
   if (next.scaffolding_details) next.scaffolding_details = normalizeScaffoldingDetailsBlock(next.scaffolding_details)
   if (next.achievement_standard) {
     next.achievement_standard = pickAchievementStandardForScaffolding({ ...next.achievement_standard })
@@ -231,6 +239,11 @@ function normalizeFeedbackItem(fb) {
         typeof s === 'string' ? cleanDisplayText(s) : s,
       )
     }
+    if (Array.isArray(next.llm_analysis.teaching_points)) {
+      next.llm_analysis.teaching_points = next.llm_analysis.teaching_points.map((s) =>
+        typeof s === 'string' ? cleanDisplayText(s) : s,
+      )
+    }
   }
   if (next.scaffolding_recommendations != null) {
     next.scaffolding_recommendations = normalizeScaffoldingRecommendations(next.scaffolding_recommendations, next.llm_analysis)
@@ -255,6 +268,9 @@ function normalizeScaffoldingApiResponse(data) {
   const next = { ...data }
   if (next.recommended_level != null) next.recommended_level = mapLevelToKorean(next.recommended_level) ?? next.recommended_level
   if (typeof next.rationale === 'string') next.rationale = cleanDisplayText(next.rationale)
+  if (Array.isArray(next.teaching_points)) {
+    next.teaching_points = next.teaching_points.map((s) => (typeof s === 'string' ? cleanDisplayText(s) : s))
+  }
   if (next.scaffolding_details) next.scaffolding_details = normalizeScaffoldingDetailsBlock(next.scaffolding_details)
   if (next.achievement_standard) {
     next.achievement_standard = pickAchievementStandardForScaffolding({ ...next.achievement_standard })
@@ -539,6 +555,42 @@ function toCurriculumSubjectCode(subject) {
   return map[subject] || subject
 }
 
+function normalizeCurriculumSubjectOptions(payload) {
+  const rawSubjects = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.subjects)
+      ? payload.subjects
+      : []
+
+  const subjects = rawSubjects
+    .map((item) => {
+      if (typeof item === 'string') {
+        const value = item.trim()
+        return value ? { slug: value, label: value } : null
+      }
+      if (!item || typeof item !== 'object') return null
+      const slug = String(item.slug || item.subject || item.code || '').trim()
+      const label = String(item.label || item.name || slug).trim()
+      if (!slug || !label) return null
+      return { ...item, slug, label }
+    })
+    .filter(Boolean)
+
+  if (!subjects.length) {
+    return DEFAULT_CURRICULUM_SUBJECTS.map((subject) => ({ ...subject }))
+  }
+
+  const deduped = []
+  const seen = new Set()
+  subjects.forEach((subject) => {
+    const key = `${subject.slug}::${subject.label}`
+    if (seen.has(key)) return
+    seen.add(key)
+    deduped.push(subject)
+  })
+  return deduped
+}
+
 function toGradeCode(grade) {
   if (!grade) return grade
   const match = String(grade).match(/[1-6]/)
@@ -563,6 +615,13 @@ export function getStudentProgress() {
   }, normalizeProgressPayload(sampleProgress))
 }
 
+export async function deleteStudentFeedbacks({ feedback_ids = [], delete_all = false } = {}) {
+  const data = (await apiClient.delete('/student/feedbacks', {
+    data: { feedback_ids, delete_all },
+  })).data
+  return data
+}
+
 export function getSchoolLife() {
   return withFallback(async () => {
     const data = (await apiClient.get('/student/school-life')).data
@@ -575,6 +634,13 @@ export function getScaffoldingRecommendation(payload) {
     const data = (await apiClient.post('/rag/scaffolding-recommendation', payload)).data
     return normalizeScaffoldingApiResponse(data)
   }, sampleScaffolding)
+}
+
+export function getCurriculumSubjects() {
+  return withFallback(
+    async () => normalizeCurriculumSubjectOptions((await apiClient.get('/rag/curriculum-subjects')).data),
+    DEFAULT_CURRICULUM_SUBJECTS.map((subject) => ({ ...subject })),
+  )
 }
 
 export function searchCurriculum(query, params = {}) {

@@ -49,7 +49,7 @@
         >
           <component :is="item.icon" />
         </RouterLink>
-        <div class="rail-avatar">{{ isTeacherRoute ? '지훈' : '지훈' }}</div>
+        <div class="rail-avatar" :title="studentDisplayName">{{ railAvatarLabel }}</div>
       </aside>
 
       <nav class="mobile-tabs" aria-label="모바일 탭">
@@ -122,6 +122,16 @@ const parentItems = [
 ]
 
 const navItems = computed(() => (isTeacherRoute.value ? teacherItems : parentItems))
+const studentDisplayName = computed(() => {
+  const name = studentStore.student?.name?.trim()
+  return name || '이지훈'
+})
+const railAvatarLabel = computed(() => {
+  const name = studentDisplayName.value.replace(/\s+/g, '')
+  if (!name) return '학생'
+  if (/^[A-Za-z]+$/.test(name)) return name.slice(0, 2).toUpperCase()
+  return name.slice(-2)
+})
 
 const headers = {
   '/teacher/overview': {
