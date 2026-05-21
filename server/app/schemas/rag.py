@@ -14,6 +14,7 @@ class ScaffoldingRecommendationRequest(BaseModel):
     subject: str = Field(..., description="Subject (e.g., '국어', '수학')")
     teacher_description: str = Field(..., description="Teacher or parent's description of the child's current state and abilities")
     past_feedback_ids: Optional[List[int]] = Field(None, description="Optional list of past feedback IDs to consider for context")
+    use_llm: bool = Field(True, description="Use Gemini for deeper analysis. Set false for fast RAG/rule-based mode.")
 
 
 class LearningActivity(BaseModel):
@@ -72,6 +73,10 @@ class ScaffoldingRecommendation(BaseModel):
     rationale: str = Field(..., description="Explanation of why this level was recommended")
     scaffolding_details: ScaffoldingLevel = Field(..., description="Detailed scaffolding recommendations")
     achievement_standard: AchievementStandardReference = Field(..., description="Reference to the relevant achievement standard")
+    teaching_points: List[str] = Field(
+        default_factory=list,
+        description="Four concise pre-class teaching checkpoints generated from profile, feedback, recommendation, and evidence standard",
+    )
     related_achievement_standards: List[str] = Field(
         default_factory=list,
         description="Additional relevant achievement standards considered for recommendation",
@@ -85,6 +90,10 @@ class LLMAnalysisResult(BaseModel):
     detected_level: str = Field(..., description="Detected ability level (high/medium/low)")
     learning_gaps: List[str] = Field(..., description="Identified learning gaps or challenges")
     recommended_strategies: List[str] = Field(..., description="Recommended teaching strategies")
+    teaching_points: List[str] = Field(
+        default_factory=list,
+        description="Concise teacher-facing classroom checkpoints",
+    )
     confidence_score: float = Field(..., description="Confidence in the analysis (0.0-1.0)")
     analysis_summary: str = Field(..., description="Brief summary of the analysis")
 
@@ -126,6 +135,7 @@ class CareerRecommendationRequest(BaseModel):
     grade: Optional[str] = Field(None, description="Student's grade")
     interests: Optional[List[str]] = Field(None, description="Student's interests or preferred activities")
     disability_type: Optional[str] = Field(None, description="Type of disability for personalized recommendations")
+    use_llm: bool = Field(True, description="Always call Gemini at least once for query/profile interpretation. Final ranking/path can still use fast RAG/rule-based composition.")
 
 
 class RecommendedCareer(BaseModel):
