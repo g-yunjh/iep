@@ -16,6 +16,31 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     gemini_chat_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_CHAT_MODEL")
     llm_cache_ttl_sec: int = Field(default=600, alias="LLM_CACHE_TTL_SEC")
+    rag_analysis_cache_ttl_sec: int = Field(default=300, alias="RAG_ANALYSIS_CACHE_TTL_SEC")
+    gemini_analysis_max_output_tokens: int = Field(
+        default=768,
+        alias="GEMINI_ANALYSIS_MAX_OUTPUT_TOKENS",
+    )
+    gemini_career_max_output_tokens: int = Field(
+        default=1536,
+        alias="GEMINI_CAREER_MAX_OUTPUT_TOKENS",
+    )
+    gemini_gap_max_output_tokens: int = Field(
+        default=768,
+        alias="GEMINI_GAP_MAX_OUTPUT_TOKENS",
+    )
+    gemini_path_max_output_tokens: int = Field(
+        default=1024,
+        alias="GEMINI_PATH_MAX_OUTPUT_TOKENS",
+    )
+    gemini_query_profile_max_output_tokens: int = Field(
+        default=320,
+        alias="GEMINI_QUERY_PROFILE_MAX_OUTPUT_TOKENS",
+    )
+    gemini_thinking_budget: int = Field(
+        default=0,
+        alias="GEMINI_THINKING_BUDGET",
+    )
     local_embedding_model: str = Field(
         default="jhgan/ko-sroberta-multitask",
         alias="LOCAL_EMBEDDING_MODEL",

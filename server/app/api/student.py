@@ -10,7 +10,13 @@ from app.db import models
 from app.db.database import get_db
 from app.db.models import Feedback
 from app.schemas.rag import StudentProgressResponse
-from app.schemas.student import SchoolLifeResponse, Student, StudentUpdate
+from app.schemas.student import (
+    FeedbackDeleteRequest,
+    FeedbackDeleteResponse,
+    SchoolLifeResponse,
+    Student,
+    StudentUpdate,
+)
 import app.services.neis_service as neis_service
 
 router = APIRouter()
@@ -119,6 +125,30 @@ async def get_student_progress(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"학생 진행 상황 조회 실패: {str(e)}")
 
 
+@router.delete("/feedbacks", response_model=FeedbackDeleteResponse)
+async def delete_student_feedbacks(payload: FeedbackDeleteRequest, db: Session = Depends(get_db)):
+    """선택한 피드백 또는 전체 피드백 기록 삭제"""
+    student = _get_or_create_persona_student(db)
+    base_query = db.query(Feedback).filter(Feedback.student_id == student.id)
+
+    if payload.delete_all:
+        targets = base_query.all()
+    else:
+        feedback_ids = sorted({feedback_id for feedback_id in payload.feedback_ids if feedback_id > 0})
+        if not feedback_ids:
+            raise HTTPException(status_code=400, detail="삭제할 피드백을 선택해주세요.")
+        targets = base_query.filter(Feedback.id.in_(feedback_ids)).all()
+
+    deleted_count = len(targets)
+    for feedback in targets:
+        db.delete(feedback)
+
+    db.commit()
+    remaining_count = base_query.count()
+    logger.info("Deleted %s feedback rows for student_id=%s", deleted_count, student.id)
+    return FeedbackDeleteResponse(deleted_count=deleted_count, remaining_count=remaining_count)
+
+
 def _generate_progress_summary(feedbacks: List[Dict]) -> str:
     """학생의 진행 상황 요약 생성"""
     if not feedbacks:
@@ -150,5 +180,4 @@ def _generate_progress_summary(feedbacks: List[Dict]) -> str:
         summary_parts.append(f"최근 분석 결과: {', '.join(level_summary)}")
 
     return " ".join(summary_parts)
-
 
