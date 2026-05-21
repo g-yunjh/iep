@@ -7,6 +7,9 @@ import logging
 import math
 import shutil
 import time
+import json
+import hashlib
+from functools import lru_cache
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -23,6 +26,20 @@ logger = logging.getLogger(__name__)
 # Collection names
 COLLECTION_CURRICULUM = "curriculum_standards"
 COLLECTION_CAREER = "career_data"
+
+
+@lru_cache(maxsize=4)
+def _get_cached_embeddings(model_name: str) -> HuggingFaceEmbeddings:
+    """Reuse the local embedding model across requests.
+
+    Loading the Korean sentence-transformer model is expensive. Without this
+    process-level cache, every RAGService instance reloads model weights.
+    """
+    return HuggingFaceEmbeddings(
+        model_name=model_name,
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+    )
 
 
 class RAGService:
@@ -59,14 +76,60 @@ class RAGService:
         """Get the directory for a specific collection."""
         return self.persist_directory / collection_name
 
+    def _get_collection_meta_path(self, collection_name: str) -> Path:
+        return self._get_collection_dir(collection_name) / "_source_state.json"
+
+    def _get_source_files(self, data_type: str) -> List[Path]:
+        if data_type == "career":
+            base_dir = self.data_loader.data_dir / "careers"
+            return sorted(base_dir.glob("jobs_batch_*.json")) if base_dir.exists() else []
+        base_dir = self.data_loader.data_dir / "curriculum"
+        return sorted(base_dir.glob("**/*.json")) if base_dir.exists() else []
+
+    def _compute_source_signature(self, data_type: str) -> str:
+        fingerprints: List[Dict[str, Any]] = []
+        for file_path in self._get_source_files(data_type):
+            stat = file_path.stat()
+            fingerprints.append({
+                "path": str(file_path.relative_to(self.data_loader.data_dir)),
+                "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+            })
+        payload = json.dumps(fingerprints, ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _write_collection_signature(self, data_type: str) -> None:
+        meta_path = self._get_collection_meta_path(self.collection_name)
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(
+            json.dumps(
+                {
+                    "data_type": data_type,
+                    "signature": self._compute_source_signature(data_type),
+                    "updated_at": time.time(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    def _collection_needs_rebuild(self, data_type: str) -> bool:
+        meta_path = self._get_collection_meta_path(self.collection_name)
+        if not meta_path.exists():
+            return True
+
+        try:
+            saved = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            return True
+
+        return saved.get("signature") != self._compute_source_signature(data_type)
+
     def _create_embeddings(self, model_name: str) -> HuggingFaceEmbeddings:
         """Create local embedding client for a given model name."""
         try:
-            return HuggingFaceEmbeddings(
-                model_name=model_name,
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True},
-            )
+            return _get_cached_embeddings(model_name)
         except Exception as e:
             fallback_model = "jhgan/ko-sroberta-multitask"
             if model_name == fallback_model:
@@ -78,11 +141,7 @@ class RAGService:
                 fallback_model,
             )
             self.embedding_model = fallback_model
-            return HuggingFaceEmbeddings(
-                model_name=fallback_model,
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={"normalize_embeddings": True},
-            )
+            return _get_cached_embeddings(fallback_model)
 
     def _safe_remove_dir(self, target_dir: Path, retries: int = 5, delay_sec: float = 0.4) -> None:
         """Remove directory with retries to tolerate Windows sqlite file locks."""
@@ -178,19 +237,28 @@ class RAGService:
 
             # Check if vector store already exists
             if had_existing_store and not force_recreate:
-                self.logger.info(f"Vector store for {data_type} already exists, loading...")
-                self.vectorstore = Chroma(
-                    persist_directory=str(collection_dir),
-                    embedding_function=self.embeddings,
-                    collection_name=self.collection_name
-                )
-                existing_count = self.vectorstore._collection.count()
-                if existing_count > 0:
-                    return True
-                self.logger.info(
-                    "Existing vector store for %s is empty. Rebuilding embeddings.",
-                    data_type,
-                )
+                if self._collection_needs_rebuild(data_type):
+                    self.logger.info(
+                        "Detected source data change for %s collection. Rebuilding vector store.",
+                        data_type,
+                    )
+                    self._safe_remove_dir(collection_dir)
+                    collection_dir.mkdir(parents=True, exist_ok=True)
+                    had_existing_store = False
+                else:
+                    self.logger.info(f"Vector store for {data_type} already exists, loading...")
+                    self.vectorstore = Chroma(
+                        persist_directory=str(collection_dir),
+                        embedding_function=self.embeddings,
+                        collection_name=self.collection_name
+                    )
+                    existing_count = self.vectorstore._collection.count()
+                    if existing_count > 0:
+                        return True
+                    self.logger.info(
+                        "Existing vector store for %s is empty. Rebuilding embeddings.",
+                        data_type,
+                    )
 
             # Delete existing store if force recreate
             if force_recreate and collection_dir.exists():
@@ -225,6 +293,7 @@ class RAGService:
                 persist_directory=str(collection_dir),
                 collection_name=self.collection_name
             )
+            self._write_collection_signature(data_type)
 
             self.logger.info(f"Vector store for {data_type} initialized successfully")
             return True
@@ -293,7 +362,7 @@ class RAGService:
 
         try:
             # Load existing vector store
-            if collection_dir.exists():
+            if collection_dir.exists() and not self._collection_needs_rebuild(data_type):
                 self.vectorstore = Chroma(
                     persist_directory=str(collection_dir),
                     embedding_function=self.embeddings,
@@ -301,29 +370,38 @@ class RAGService:
                 )
             else:
                 # Initialize if not exists
-                if not self.initialize_vector_store(data_type):
+                if not self.initialize_vector_store(data_type, force_recreate=collection_dir.exists()):
                     return []
 
             # Build filter for metadata
-            filter_dict = {}
+            filter_parts: List[Dict[str, Any]] = []
             if data_type == "curriculum":
                 if grade:
-                    filter_dict["grade"] = grade
+                    filter_parts.append({"grade": grade})
                 if subject:
-                    filter_dict["subject"] = subject
+                    variants = self.data_loader.get_subject_filter_variants(subject)
+                    seen_subject_pairs = set()
+                    subject_clauses: List[Dict[str, str]] = []
+                    for variant in variants:
+                        for key in ("subject", "subject_label"):
+                            pair = (key, variant)
+                            if pair in seen_subject_pairs:
+                                continue
+                            seen_subject_pairs.add(pair)
+                            subject_clauses.append({key: variant})
+                    if subject_clauses:
+                        filter_parts.append({"$or": subject_clauses})
                 if disability_type:
-                    filter_dict["disability_type"] = disability_type
+                    filter_parts.append({"disability_type": disability_type})
 
             # Chroma where filter expects a single operator at top-level when
             # combining multiple conditions. Build `$and` for multi-field filters.
-            if not filter_dict:
+            if not filter_parts:
                 filter_condition = None
-            elif len(filter_dict) == 1:
-                filter_condition = filter_dict
+            elif len(filter_parts) == 1:
+                filter_condition = filter_parts[0]
             else:
-                filter_condition = {
-                    "$and": [{key: value} for key, value in filter_dict.items()]
-                }
+                filter_condition = {"$and": filter_parts}
 
             # Perform similarity search with score
             docs_and_scores = self.vectorstore.similarity_search_with_score(
@@ -354,9 +432,9 @@ class RAGService:
 
             all_results.sort(key=lambda item: item["distance"])
             results = [item for item in all_results if item["distance"] <= score_threshold]
-            if not results and all_results:
+            if (not results or len(results) < min(k, 5)) and all_results:
                 self.logger.info(
-                    "No results met distance threshold %.3f for %s query; "
+                    "Few results met distance threshold %.3f for %s query; "
                     "returning top-%d nearest results instead.",
                     score_threshold,
                     data_type,
@@ -422,6 +500,10 @@ class RAGService:
             data_type="career",
             k=k
         )
+
+    def list_curriculum_subjects(self) -> List[Dict[str, Any]]:
+        """Return discovered curriculum subjects from the source directory."""
+        return self.data_loader.list_curriculum_subjects()
 
     def get_collection_info(self, data_type: str = "curriculum") -> Dict[str, Any]:
         """

@@ -70,17 +70,144 @@ def _extract_query_constraints(query: str) -> Dict[str, List[str]]:
 
     prefer: List[str] = []
     avoid: List[str] = []
-    chunks = [part.strip() for part in re.split(r"[,.]|하지만|그런데|다만|면서|이고|이며", text) if part.strip()]
+    chunks = [
+        part.strip()
+        for part in re.split(
+            r"[,.]|하지만|있지만|지만|그러나|그런데|반면|다만|면서|이고|이며",
+            text,
+        )
+        if part.strip()
+    ]
 
     for chunk in chunks:
         lowered = chunk.lower()
-        is_avoid = any(token in lowered for token in ["어렵", "힘들", "싫", "부담", "약함", "못하", "안 되"])
+        is_avoid = any(
+            token in lowered
+            for token in [
+                "어렵", "힘들", "싫", "부담", "약함", "약하", "못하", "못 ",
+                "안 되", "전무", "없", "부족", "낮", "불가", "제한",
+            ]
+        )
         if is_avoid:
             avoid.append(chunk)
         else:
             prefer.append(chunk)
 
     return {"prefer": prefer[:5], "avoid": avoid[:5]}
+
+
+_NEGATIVE_STOPWORDS = {
+    "능력", "역량", "전무", "없음", "없는", "없다", "어려움", "어렵다", "부족",
+    "낮음", "낮다", "약함", "약하다", "못함", "못하다", "불가", "제한",
+}
+
+
+_CAREER_AVOIDANCE_SYNONYMS = {
+    "언어": ["언어", "의사소통", "말", "말투", "발음", "어휘", "문법", "청력", "표현", "글쓰기", "문장", "전달", "상담", "설득", "설명", "발표", "가르치", "수업", "교육", "교사", "강사", "속기", "통역", "번역", "텔레"],
+    "의사소통": ["언어", "의사소통", "말", "표현", "전달", "상담", "설득", "설명", "발표", "교육", "교사", "강사", "속기", "통역", "번역", "텔레"],
+    "대인": ["대인", "고객", "상담", "서비스", "설득", "친화", "관계", "영업"],
+    "신체": ["신체", "체력", "육체", "운동", "활동", "이동", "서 있", "장시간", "현장", "야외", "노무", "제조", "생산", "조립", "수리", "수선", "도장", "시공", "작업원"],
+    "손": ["손", "손재주", "정교", "수작업", "미세", "조작", "세밀", "수리", "수선", "부착", "도배", "도장", "판금", "공작", "제조"],
+    "시각": ["시각", "색", "색채", "관찰", "디자인", "도면"],
+    "소음": ["소음", "음향", "녹음", "성우", "방송", "공연", "기계", "제조", "생산", "압연", "도장", "설비"],
+}
+
+
+def _extract_negative_capability_terms(query: str) -> List[str]:
+    constraints = _extract_query_constraints(query)
+    terms: List[str] = []
+
+    for phrase in constraints.get("avoid", []):
+        phrase_tokens = _tokenize_korean_text(phrase)
+        for token in phrase_tokens:
+            if token in _NEGATIVE_STOPWORDS:
+                continue
+            terms.append(token)
+
+        phrase_text = phrase.lower()
+        for key, synonyms in _CAREER_AVOIDANCE_SYNONYMS.items():
+            if key in phrase_text or any(synonym in phrase_text for synonym in synonyms):
+                terms.extend(synonyms)
+
+    unique: List[str] = []
+    for term in terms:
+        cleaned = str(term).strip().lower()
+        if len(cleaned) >= 2 and cleaned not in unique:
+            unique.append(cleaned)
+    return unique[:20]
+
+
+def _career_avoidance_score(career: RecommendedCareer, avoid_terms: List[str]) -> float:
+    if not avoid_terms:
+        return 0.0
+
+    title = (career.job_title or "").lower()
+    category = (career.category or "").lower()
+    skills_text = " ".join(career.required_skills or []).lower()
+    outlook = (career.outlook or "").lower()
+
+    score = 0.0
+    if any(term in avoid_terms for term in _CAREER_AVOIDANCE_SYNONYMS["언어"]):
+        language_heavy_titles = ["교사", "강사", "상담", "치료사", "아나운서", "통역", "번역", "리포터", "속기사", "텔레마케터"]
+        if any(token in title for token in language_heavy_titles):
+            score += 0.55
+
+    if any(term in avoid_terms for term in _CAREER_AVOIDANCE_SYNONYMS["손"]):
+        hand_heavy_titles = ["조작", "수리", "부착", "도배", "판금", "공작", "제조", "공예", "조율"]
+        if any(token in title for token in hand_heavy_titles):
+            score += 0.45
+
+    if any(term in avoid_terms for term in _CAREER_AVOIDANCE_SYNONYMS["신체"]):
+        physical_heavy_titles = ["노무", "제조", "생산", "조립", "수리", "수선", "시공", "조작", "판금", "도배", "도장", "운전", "가구"]
+        if any(token in title for token in physical_heavy_titles):
+            score += 0.45
+
+    if any(term in avoid_terms for term in _CAREER_AVOIDANCE_SYNONYMS["소음"]):
+        noise_heavy_titles = ["음향", "녹음", "성우", "방송", "공연", "기계", "제조", "생산", "압연", "도장", "설비", "공작"]
+        if any(token in title for token in noise_heavy_titles):
+            score += 0.45
+
+    for term in avoid_terms:
+        if term in title:
+            score += 0.38
+        if term in category:
+            score += 0.12
+        if term in skills_text:
+            score += 0.24
+        if term in outlook:
+            score += 0.06
+    return max(0.0, min(1.0, score))
+
+
+def _copy_career_with_score(career: RecommendedCareer, score: float) -> RecommendedCareer:
+    return RecommendedCareer(
+        job_id=career.job_id,
+        job_title=career.job_title,
+        category=career.category,
+        match_score=max(0.0, min(1.0, score)),
+        required_skills=career.required_skills,
+        outlook=career.outlook,
+    )
+
+
+def _rerank_careers_for_constraints(
+    current_skills: str,
+    careers: List[RecommendedCareer],
+) -> List[RecommendedCareer]:
+    avoid_terms = _extract_negative_capability_terms(current_skills)
+    if not avoid_terms:
+        return careers
+
+    ranked = []
+    for idx, career in enumerate(careers):
+        penalty = _career_avoidance_score(career, avoid_terms)
+        adjusted = float(career.match_score or 0.0) - (0.55 * penalty)
+        # Heavily constrained jobs should sink below weakly matched alternatives.
+        blocked = 1 if penalty >= 0.35 else 0
+        ranked.append((blocked, -adjusted, idx, _copy_career_with_score(career, adjusted)))
+
+    ranked.sort(key=lambda item: (item[0], item[1], item[2]))
+    return [career for _, _, _, career in ranked]
 
 
 def _tokenize_korean_text(text: str) -> List[str]:
@@ -243,6 +370,24 @@ async def search_curriculum(
         raise HTTPException(status_code=500, detail=f"검색 실패: {str(e)}")
 
 
+@router.get("/curriculum-subjects")
+async def get_curriculum_subjects():
+    """
+    현재 curriculum 디렉토리에서 자동 인식한 과목 목록 조회 API
+    새 과목 폴더를 추가하면 별도 하드코딩 없이 여기서 함께 노출됩니다.
+    """
+    try:
+        rag_service = RAGService()
+        subjects = rag_service.list_curriculum_subjects()
+        return {
+            "subjects": subjects,
+            "count": len(subjects),
+        }
+    except Exception as e:
+        logger.exception("과목 목록 조회 실패: %s", str(e))
+        raise HTTPException(status_code=500, detail=f"과목 목록 조회 실패: {str(e)}")
+
+
 # =============================================================================
 # Career RAG Endpoints (Career Path Recommendations)
 # =============================================================================
@@ -264,11 +409,54 @@ async def get_career_recommendation(
     try:
         student = _get_persona_student(db)
         rag_service = RAGService()
+        constraints = _extract_query_constraints(request.current_skills)
+        interest_query = " ".join(request.interests or []).strip()
+        llm_service: Optional[LLMService] = None
+        ai_query_profile: Dict[str, Any] = {}
+
+        # 공모전 요구에 맞춰 진로 추천은 매 요청마다 AI를 한 번 호출한다.
+        # 다만 긴 전체 생성 대신, 먼저 자유 서술을 짧은 검색/제약 프로필로 정규화한다.
+        if request.use_llm:
+            try:
+                llm_service = LLMService()
+                ai_query_profile = llm_service.extract_career_query_profile(
+                    current_skills=request.current_skills,
+                    interests=request.interests or [],
+                    grade=request.grade,
+                    disability_type=request.disability_type or student.disability_type,
+                )
+            except Exception as llm_error:
+                logger.warning(
+                    "LLM unavailable for career query profiling (%s): %s. "
+                    "Using rule-based search query fallback.",
+                    llm_error.__class__.__name__,
+                    str(llm_error),
+                )
+                ai_query_profile = {}
+
+        ai_prefer = " ".join(ai_query_profile.get("prefer_keywords") or []).strip()
+        ai_strengths = " ".join(ai_query_profile.get("student_strengths") or []).strip()
+        ai_query = str(ai_query_profile.get("recommended_query") or "").strip()
+        positive_query = " ".join(
+            [
+                ai_query,
+                ai_strengths,
+                ai_prefer,
+                *constraints.get("prefer", []),
+                interest_query,
+            ]
+        ).strip()
+        if positive_query:
+            career_query = positive_query
+        elif constraints.get("avoid") or ai_query_profile.get("avoid_keywords"):
+            career_query = "반복 루틴 단순 확인 정리 보조 작업"
+        else:
+            career_query = request.current_skills
         
         # 1. 학생의 현재 역량/학습 내용을 기반으로 관련 직업 검색
         career_results = rag_service.search_career(
-            query=request.current_skills,
-            k=10
+            query=career_query,
+            k=30
         )
         
         if not career_results:
@@ -278,7 +466,7 @@ async def get_career_recommendation(
         recommended_careers = []
         career_profiles = []
 
-        for career in career_results[:5]:
+        for career in career_results[:30]:
             metadata = career.get("metadata", {})
             content = career.get("content", "")
 
@@ -320,23 +508,41 @@ async def get_career_recommendation(
                 "certifications": profile.get("certifications", []),
             })
 
-        # 3. 규칙 기반 역량 격차 분석 (LLM 미사용)
-        skill_gaps = _analyze_skill_gaps(
-            current_skills=request.current_skills,
-            recommended_careers=recommended_careers,
-            llm_service=None,
-            grade=request.grade,
-            disability_type=student.disability_type,
+        constraint_text = " ".join(
+            [
+                request.current_skills,
+                " ".join(ai_query_profile.get("avoid_keywords") or []),
+                " ".join(ai_query_profile.get("prefer_keywords") or []),
+            ]
+        ).strip()
+        recommended_careers = _rerank_careers_for_constraints(
+            constraint_text or request.current_skills,
+            recommended_careers,
         )
 
-        # 4. 규칙 기반 커리어 경로 생성 (LLM 미사용)
-        career_paths = _generate_career_paths(
-            request=request,
-            recommended_careers=recommended_careers,
-            llm_service=None,
-            disability_type=student.disability_type,
-            career_profiles=career_profiles,
-        )
+        # 3. 최종 추천 조합은 빠른 RAG+규칙 기반으로 생성한다.
+        # AI는 위에서 항상 입력 정규화에 사용되며, 전체 장문 생성은 제거해 속도를 줄인다.
+        recommended_careers = recommended_careers[:5]
+        skill_gaps = []
+        career_paths = []
+
+        if not skill_gaps:
+            skill_gaps = _analyze_skill_gaps(
+                current_skills=request.current_skills,
+                recommended_careers=recommended_careers,
+                llm_service=None,
+                grade=request.grade,
+                disability_type=student.disability_type,
+            )
+
+        if not career_paths:
+            career_paths = _generate_career_paths(
+                request=request,
+                recommended_careers=recommended_careers,
+                llm_service=None,
+                disability_type=student.disability_type,
+                career_profiles=career_profiles,
+            )
         
         return CareerRecommendationResponse(
             current_skills=request.current_skills,
@@ -613,6 +819,162 @@ def _coerce_llm_string_list(raw: Any, fallback: Optional[List[str]] = None) -> L
             out.append(s)
 
     return out if out else list(fallback or [])
+
+
+def _normalize_match_score(raw: Any, fallback: float = 0.0) -> float:
+    try:
+        score = float(raw)
+    except (TypeError, ValueError):
+        score = fallback
+    if score > 1:
+        score = score / 100 if score <= 100 else 1.0
+    return max(0.0, min(1.0, score))
+
+
+def _find_career_by_title(title: str, careers: List[RecommendedCareer]) -> Optional[RecommendedCareer]:
+    normalized = (title or "").strip()
+    if not normalized:
+        return None
+    for career in careers:
+        if career.job_title == normalized:
+            return career
+    for career in careers:
+        if normalized in career.job_title or career.job_title in normalized:
+            return career
+    return None
+
+
+def _merge_llm_recommended_careers(
+    llm_result: Dict[str, Any],
+    base_careers: List[RecommendedCareer],
+) -> List[RecommendedCareer]:
+    """Use LLM ranking while preserving RAG metadata and schema-safe values."""
+    llm_items = llm_result.get("recommended_careers", [])
+    if not isinstance(llm_items, list) or not llm_items:
+        return base_careers[:5]
+
+    merged: List[RecommendedCareer] = []
+    used_titles = set()
+    for item in llm_items:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("job_title") or "").strip()
+        base = _find_career_by_title(title, base_careers)
+        if not base or base.job_title in used_titles:
+            continue
+
+        required_skills = _coerce_llm_string_list(item.get("required_skills"), base.required_skills)
+        merged.append(RecommendedCareer(
+            job_id=base.job_id,
+            job_title=base.job_title,
+            category=base.category,
+            match_score=_normalize_match_score(item.get("match_score"), base.match_score),
+            required_skills=required_skills or base.required_skills,
+            outlook=str(item.get("outlook") or base.outlook or ""),
+        ))
+        used_titles.add(base.job_title)
+
+    for career in base_careers:
+        if career.job_title not in used_titles:
+            merged.append(career)
+        if len(merged) >= 5:
+            break
+
+    return merged[:5]
+
+
+def _build_skill_gaps_from_llm(
+    llm_result: Dict[str, Any],
+    recommended_careers: List[RecommendedCareer],
+    current_skills: str,
+) -> List[SkillGap]:
+    items = llm_result.get("skill_gaps", [])
+    if not isinstance(items, list):
+        return []
+
+    out: List[SkillGap] = []
+    for career in recommended_careers[:3]:
+        item = next(
+            (
+                raw for raw in items
+                if isinstance(raw, dict)
+                and _find_career_by_title(str(raw.get("job_title") or ""), [career])
+            ),
+            None,
+        )
+        if not item:
+            continue
+
+        required_level = _coerce_llm_string_list(item.get("required_level"), career.required_skills)
+        alignment = _compute_skill_alignment(current_skills, required_level)
+        current_level = _coerce_llm_string_list(
+            item.get("current_level"),
+            alignment.get("matched_skills", []),
+        )
+        gap_skills = _coerce_llm_string_list(
+            item.get("gap_skills"),
+            alignment.get("missing_skills", [])[:5],
+        )
+        development_suggestions = _coerce_llm_string_list(
+            item.get("development_suggestions"),
+            [f"'{skill}' 역량을 짧은 수업 활동으로 나누어 반복합니다." for skill in gap_skills[:3]],
+        )
+
+        if required_level or gap_skills or development_suggestions:
+            out.append(SkillGap(
+                job_title=career.job_title,
+                current_level=current_level,
+                required_level=required_level,
+                gap_skills=gap_skills,
+                development_suggestions=development_suggestions,
+            ))
+
+    return out
+
+
+def _build_career_paths_from_llm(
+    llm_result: Dict[str, Any],
+    request: CareerRecommendationRequest,
+    recommended_careers: List[RecommendedCareer],
+) -> List[CareerPath]:
+    items = llm_result.get("career_paths", [])
+    if not isinstance(items, list):
+        return []
+
+    out: List[CareerPath] = []
+    for career in recommended_careers[:3]:
+        item = next(
+            (
+                raw for raw in items
+                if isinstance(raw, dict)
+                and _find_career_by_title(str(raw.get("target_career") or ""), [career])
+            ),
+            None,
+        )
+        if not item:
+            continue
+
+        stages: List[Dict[str, str]] = []
+        raw_stages = item.get("stages", [])
+        if isinstance(raw_stages, list):
+            for idx, stage in enumerate(raw_stages[:5], start=1):
+                if not isinstance(stage, dict):
+                    continue
+                stages.append({
+                    "stage": str(stage.get("stage") or f"단계 {idx}"),
+                    "focus": str(stage.get("focus") or ""),
+                    "description": str(stage.get("description") or ""),
+                })
+
+        if stages:
+            out.append(CareerPath(
+                current_learning=request.current_skills,
+                target_career=career.job_title,
+                stages=stages,
+                estimated_timeline=str(item.get("estimated_timeline") or "개별 평가 필요"),
+            ))
+
+    return out
 
 
 def _analyze_skill_gaps(

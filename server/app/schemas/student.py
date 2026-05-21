@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 
@@ -55,6 +55,16 @@ class Feedback(FeedbackBase):
 
     class Config:
         from_attributes = True
+
+
+class FeedbackDeleteRequest(BaseModel):
+    feedback_ids: List[int] = Field(default_factory=list)
+    delete_all: bool = False
+
+
+class FeedbackDeleteResponse(BaseModel):
+    deleted_count: int
+    remaining_count: int
 
 
 class StrategyResponse(BaseModel):

@@ -14,12 +14,34 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 
+SUBJECT_DISPLAY_NAMES = {
+    "math": "수학",
+    "korean": "국어",
+    "science": "과학",
+    "social_studies": "사회",
+    "society": "사회",
+    "english": "영어",
+    "music": "음악",
+    "art": "미술",
+    "physical_education": "체육",
+    "ethics": "도덕",
+    "history": "역사",
+    "practical_arts": "실과",
+    "technology_home": "기술·가정",
+    "information": "정보",
+    "integrated_subjects": "통합교과",
+    "career_vocational": "진로직업",
+    "elective_subjects": "선택교과",
+}
+
+
 @dataclass
 class AchievementStandard:
     """Represents a single achievement standard document."""
     standard_id: str
     grade: str
     subject: str
+    subject_label: str
     source: str
     domain: str
     disability_type: str
@@ -74,7 +96,7 @@ class AchievementStandard:
 
         content = f"""
 학년: {self.grade}
-과목: {self.subject}
+과목: {self.subject_label or self.subject}
 장애 유형: {self.disability_type}
 성취기준 ID: {self.standard_id}
 
@@ -95,6 +117,7 @@ class AchievementStandard:
             "achievement_standard_id": self.standard_id,
             "grade": self.grade,
             "subject": self.subject,
+            "subject_label": self.subject_label or self.subject,
             "domain": self.domain,
             "disability_type": self.disability_type,
             "source": self.source,
@@ -192,6 +215,45 @@ class DataLoader:
         searched_message = ", ".join(str(path.resolve()) for path in searched_paths)
         self.logger.error("Data directory not found. Checked paths: %s", searched_message)
 
+    def _normalize_subject_slug(self, raw_subject: str) -> str:
+        """Normalize subject directory names to a stable slug."""
+        return str(raw_subject or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+    def _subject_label(self, subject_slug: str) -> str:
+        """Return the display label for a curriculum subject slug."""
+        slug = self._normalize_subject_slug(subject_slug)
+        return SUBJECT_DISPLAY_NAMES.get(slug, subject_slug)
+
+    def get_subject_filter_variants(self, subject: Optional[str]) -> List[str]:
+        """Return subject variants so filters work with slug or display label."""
+        if not subject:
+            return []
+
+        raw = str(subject).strip()
+        slug = self._normalize_subject_slug(raw)
+        variants = {raw, slug}
+
+        for known_slug in self._list_curriculum_subject_slugs():
+            label = self._subject_label(known_slug)
+            if raw == known_slug or raw == label or slug == known_slug:
+                variants.add(known_slug)
+                variants.add(label)
+                break
+        else:
+            variants.add(self._subject_label(slug))
+
+        return [value for value in variants if value]
+
+    def _list_curriculum_subject_slugs(self) -> List[str]:
+        curriculum_dir = self.data_dir / "curriculum"
+        if not curriculum_dir.exists():
+            return []
+        return sorted(
+            self._normalize_subject_slug(path.name)
+            for path in curriculum_dir.iterdir()
+            if path.is_dir()
+        )
+
     def load_standards_from_json(self, filename: str) -> List[AchievementStandard]:
         """Load achievement standards from a JSON file."""
         file_path = self.data_dir / filename
@@ -209,6 +271,7 @@ class DataLoader:
                     standard_id=item.get('id', ''),
                     grade=item.get('grade', ''),
                     subject=item.get('subject', ''),
+                    subject_label=item.get('subject', ''),
                     source=filename,
                     domain="legacy",
                     disability_type=item.get('disability_type', ''),
@@ -274,13 +337,13 @@ class DataLoader:
             return all_standards
 
         # Walk through all subdirectories
-        for subject_dir in curriculum_dir.iterdir():
+        for subject_dir in sorted(curriculum_dir.iterdir(), key=lambda path: path.name):
             if subject_dir.is_dir():
-                subject = subject_dir.name
+                subject_slug = self._normalize_subject_slug(subject_dir.name)
                 # Load all JSON files in the subject directory
-                for json_file in subject_dir.glob("*.json"):
+                for json_file in sorted(subject_dir.glob("*.json")):
                     try:
-                        standards = self._load_curriculum_file(json_file, subject)
+                        standards = self._load_curriculum_file(json_file, subject_slug)
                         all_standards.extend(standards)
                     except Exception as e:
                         self.logger.error(f"Error loading {json_file}: {e}")
@@ -288,13 +351,14 @@ class DataLoader:
         self.logger.info(f"Loaded {len(all_standards)} curriculum standards total")
         return all_standards
 
-    def _load_curriculum_file(self, file_path: Path, subject: str) -> List[AchievementStandard]:
+    def _load_curriculum_file(self, file_path: Path, subject_slug: str) -> List[AchievementStandard]:
         """Load a single curriculum JSON file."""
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
         standards = []
-        source_name = f"curriculum/{subject}/{file_path.name}"
+        subject_label = self._subject_label(subject_slug)
+        source_name = f"curriculum/{subject_slug}/{file_path.name}"
         domain = file_path.stem
         for item in data:
             # Parse grade from id prefix like "9국어01-04", fallback to explicit grade.
@@ -308,7 +372,8 @@ class DataLoader:
             standard = AchievementStandard(
                 standard_id=standard_id,
                 grade=grade,
-                subject=subject,
+                subject=subject_slug,
+                subject_label=subject_label,
                 source=source_name,
                 domain=domain,
                 disability_type=disability_type,
@@ -320,6 +385,38 @@ class DataLoader:
             standards.append(standard)
 
         return standards
+
+    def list_curriculum_subjects(self) -> List[Dict[str, Any]]:
+        """Return all curriculum subjects discovered from the directory structure."""
+        curriculum_dir = self.data_dir / "curriculum"
+        if not curriculum_dir.exists():
+            return []
+
+        subjects: List[Dict[str, Any]] = []
+        for subject_dir in sorted(curriculum_dir.iterdir(), key=lambda path: path.name):
+            if not subject_dir.is_dir():
+                continue
+            slug = self._normalize_subject_slug(subject_dir.name)
+            json_files = sorted(subject_dir.glob("*.json"))
+            standard_count = 0
+            for json_file in json_files:
+                try:
+                    with open(json_file, "r", encoding="utf-8") as file_obj:
+                        payload = json.load(file_obj)
+                    if isinstance(payload, list):
+                        standard_count += len(payload)
+                except Exception:
+                    continue
+
+            subjects.append({
+                "slug": slug,
+                "label": self._subject_label(slug),
+                "file_count": len(json_files),
+                "standard_count": standard_count,
+                "domains": [json_file.stem for json_file in json_files],
+            })
+
+        return subjects
 
     def load_all_standards(self) -> List[AchievementStandard]:
         """Load all achievement standards from available JSON files."""
