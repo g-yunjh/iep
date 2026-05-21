@@ -38,26 +38,99 @@
             <p class="eyebrow">Feedback Timeline</p>
             <h2 class="panel-title">피드백 기록</h2>
             <p class="panel-subtitle">
-              {{ searchQuery ? `'${searchQuery}' 검색 결과 ${visibleFeedbacks.length}개` : '최근 기록을 선택하면 오른쪽에서 추천 원문을 확인합니다.' }}
+              {{ searchQuery ? `'${searchQuery}' 검색 결과 ${filteredFeedbacks.length}개` : '최근 기록을 선택하면 오른쪽에서 추천 원문을 확인합니다.' }}
             </p>
           </div>
-          <button class="btn ghost" type="button" :disabled="loading" @click="loadProgress">새로고침</button>
+          <div class="feedback-action-row">
+            <button class="btn ghost" type="button" :disabled="loading || deleting" @click="loadProgress">새로고침</button>
+            <button
+              :class="['btn ghost', deleteMode && 'danger']"
+              type="button"
+              :disabled="!feedbacks.length || deleting"
+              @click="toggleDeleteMode"
+            >
+              {{ deleteMode ? '취소' : '기록 지우기' }}
+            </button>
+          </div>
         </div>
 
-        <div v-if="visibleFeedbacks.length" class="list-stack spaced">
-          <button
-            v-for="(feedback, index) in visibleFeedbacks"
-            :key="feedback.id || index"
-            type="button"
-            :class="['timeline-row', selectedId === feedback.id && 'is-selected']"
-            @click="selectedId = feedback.id"
-          >
-            <small>{{ formatDate(feedback.created_at) }}</small>
-            <strong>{{ feedback.teacher_description || feedback.performance || '기록 내용 없음' }}</strong>
-            <span class="badge soft">{{ levelLabel(feedback.llm_analysis?.detected_level) }}</span>
-            <span class="mono">{{ feedback.id ? `#${feedback.id}` : '-' }}</span>
-          </button>
+        <div v-if="deleteMode && filteredFeedbacks.length" class="feedback-delete-panel spaced">
+          <div class="feedback-delete-copy">
+            <p class="eyebrow">Delete Feedback</p>
+            <h3>삭제할 기록 선택</h3>
+            <p :title="deleteModeSummary">{{ deleteModeSummary }}</p>
+          </div>
+          <div class="feedback-delete-actions">
+            <label class="feedback-select-all">
+              <input
+                type="checkbox"
+                :checked="areVisibleFeedbacksSelected"
+                :disabled="deleting"
+                @change="toggleVisibleFeedbacks($event.target.checked)"
+              >
+              <span>현재 목록 선택</span>
+            </label>
+            <button
+              class="btn ghost"
+              type="button"
+              :disabled="!selectedFeedbackIds.length || deleting"
+              @click="deleteSelectedFeedbacks"
+            >
+              선택 삭제
+            </button>
+            <button
+              class="btn ghost danger"
+              type="button"
+              :disabled="!feedbacks.length || deleting"
+              @click="deleteAllFeedbacks"
+            >
+              전체 지우기
+            </button>
+          </div>
         </div>
+
+        <p v-if="deleteNotice" class="feedback-notice">{{ deleteNotice }}</p>
+
+        <template v-if="visibleFeedbacks.length">
+          <div class="list-stack spaced">
+            <article
+              v-for="(feedback, index) in visibleFeedbacks"
+              :key="feedback.id || index"
+              :class="[
+                'timeline-row',
+                'feedback-select-row',
+                deleteMode && 'is-delete-mode',
+                deleteMode && selectedFeedbackIds.includes(feedback.id) && 'is-marked-delete',
+                selectedId === feedback.id && 'is-selected',
+              ]"
+            >
+              <label v-if="deleteMode" class="feedback-row-check" @click.stop>
+                <input
+                  type="checkbox"
+                  :checked="selectedFeedbackIds.includes(feedback.id)"
+                  :disabled="!feedback.id || deleting"
+                  @change="toggleFeedbackSelection(feedback.id, $event.target.checked)"
+                >
+              </label>
+              <button
+                type="button"
+                class="feedback-row-content"
+                @click="handleFeedbackRowClick(feedback)"
+              >
+                <small>{{ formatDate(feedback.created_at) }}</small>
+                <strong>{{ feedback.teacher_description || feedback.performance || '기록 내용 없음' }}</strong>
+                <span class="badge soft">{{ levelLabel(feedback.llm_analysis?.detected_level) }}</span>
+                <span class="mono">{{ feedback.id ? `#${feedback.id}` : '-' }}</span>
+              </button>
+            </article>
+          </div>
+
+          <div v-if="hiddenFeedbackCount" class="feedback-more-row">
+            <button class="btn ghost" type="button" @click="showAllFeedbacks = !showAllFeedbacks">
+              {{ showAllFeedbacks ? '접기' : `${hiddenFeedbackCount}개 더보기` }}
+            </button>
+          </div>
+        </template>
 
         <div v-else class="empty-state spaced">
           <strong>{{ searchQuery ? '검색 결과가 없습니다.' : '아직 저장된 피드백이 없습니다.' }}</strong>
@@ -118,19 +191,48 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ClipboardList, TrendingUp } from 'lucide-vue-next'
-import { getStudentProgress, mapLevelToKorean } from '../../api'
+import { deleteStudentFeedbacks, getStudentProgress, mapLevelToKorean } from '../../api'
 
+const FEEDBACK_PREVIEW_LIMIT = 7
 const loading = ref(false)
+const deleting = ref(false)
+const deleteMode = ref(false)
+const deleteNotice = ref('')
 const feedbacks = ref([])
 const selectedId = ref(null)
+const selectedFeedbackIds = ref([])
+const showAllFeedbacks = ref(false)
 const route = useRoute()
 
 const orderedFeedbacks = computed(() => [...feedbacks.value].reverse())
 const searchQuery = computed(() => (typeof route.query.q === 'string' ? route.query.q.trim() : ''))
-const visibleFeedbacks = computed(() => {
+const filteredFeedbacks = computed(() => {
   const q = searchQuery.value.toLowerCase()
   if (!q) return orderedFeedbacks.value
   return orderedFeedbacks.value.filter((feedback) => feedbackMatches(feedback, q))
+})
+const hiddenFeedbackCount = computed(() => Math.max(filteredFeedbacks.value.length - FEEDBACK_PREVIEW_LIMIT, 0))
+const visibleFeedbacks = computed(() =>
+  showAllFeedbacks.value ? filteredFeedbacks.value : filteredFeedbacks.value.slice(0, FEEDBACK_PREVIEW_LIMIT),
+)
+const visibleFeedbackIds = computed(() => visibleFeedbacks.value.map((feedback) => feedback.id).filter(Boolean))
+const areVisibleFeedbacksSelected = computed(() =>
+  visibleFeedbackIds.value.length > 0 &&
+  visibleFeedbackIds.value.every((id) => selectedFeedbackIds.value.includes(id)),
+)
+const selectionSummary = computed(() => {
+  if (selectedFeedbackIds.value.length) return `${selectedFeedbackIds.value.length}개 선택됨`
+  if (hiddenFeedbackCount.value && !showAllFeedbacks.value) {
+    return `최근 ${FEEDBACK_PREVIEW_LIMIT}개 표시 · ${hiddenFeedbackCount.value}개 숨김`
+  }
+  return `총 ${filteredFeedbacks.value.length}개 기록`
+})
+const deleteModeSummary = computed(() => {
+  if (selectedFeedbackIds.value.length) return `${selectedFeedbackIds.value.length}개 선택됨`
+  if (hiddenFeedbackCount.value && !showAllFeedbacks.value) {
+    return `최근 ${FEEDBACK_PREVIEW_LIMIT}개 표시 · 더보기로 추가 선택`
+  }
+  return '선택 삭제 또는 전체 지우기'
 })
 const selectedFeedback = computed(() =>
   feedbacks.value.find((feedback) => feedback.id === selectedId.value) ||
@@ -182,6 +284,37 @@ function feedbackMatches(feedback, query) {
   return fields.some((field) => String(field || '').toLowerCase().includes(query))
 }
 
+function toggleFeedbackSelection(feedbackId, checked) {
+  if (!feedbackId) return
+  const next = new Set(selectedFeedbackIds.value)
+  if (checked) next.add(feedbackId)
+  else next.delete(feedbackId)
+  selectedFeedbackIds.value = [...next]
+}
+
+function toggleVisibleFeedbacks(checked) {
+  const next = new Set(selectedFeedbackIds.value)
+  visibleFeedbackIds.value.forEach((id) => {
+    if (checked) next.add(id)
+    else next.delete(id)
+  })
+  selectedFeedbackIds.value = [...next]
+}
+
+function handleFeedbackRowClick(feedback) {
+  if (deleteMode.value) {
+    toggleFeedbackSelection(feedback.id, !selectedFeedbackIds.value.includes(feedback.id))
+    return
+  }
+  selectedId.value = feedback.id
+}
+
+function toggleDeleteMode() {
+  deleteMode.value = !deleteMode.value
+  deleteNotice.value = ''
+  if (!deleteMode.value) selectedFeedbackIds.value = []
+}
+
 function levelLabel(level) {
   const mapped = mapLevelToKorean(level)
   return mapped != null && mapped !== '' ? mapped : '대기'
@@ -205,15 +338,63 @@ function formatDateTime(value) {
 async function loadProgress() {
   loading.value = true
   try {
+    const previousSelectedId = selectedId.value
     const progress = await getStudentProgress()
     feedbacks.value = progress.feedbacks || []
-    selectedId.value = visibleFeedbacks.value[0]?.id || orderedFeedbacks.value[0]?.id || null
+    const validIds = new Set(feedbacks.value.map((feedback) => feedback.id).filter(Boolean))
+    selectedFeedbackIds.value = selectedFeedbackIds.value.filter((id) => validIds.has(id))
+    selectedId.value = validIds.has(previousSelectedId)
+      ? previousSelectedId
+      : visibleFeedbacks.value[0]?.id || orderedFeedbacks.value[0]?.id || null
   } finally {
     loading.value = false
   }
 }
 
+async function deleteSelectedFeedbacks() {
+  const ids = selectedFeedbackIds.value
+  if (!ids.length || deleting.value) return
+  if (!window.confirm(`${ids.length}개의 피드백 기록을 삭제할까요?`)) return
+
+  deleting.value = true
+  deleteNotice.value = ''
+  try {
+    const result = await deleteStudentFeedbacks({ feedback_ids: ids })
+    selectedFeedbackIds.value = []
+    deleteMode.value = false
+    deleteNotice.value = `${result.deleted_count}개의 기록을 삭제했습니다.`
+    await loadProgress()
+  } catch (error) {
+    deleteNotice.value = '삭제 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.'
+  } finally {
+    deleting.value = false
+  }
+}
+
+async function deleteAllFeedbacks() {
+  if (!feedbacks.value.length || deleting.value) return
+  if (!window.confirm('모든 피드백 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.')) return
+
+  deleting.value = true
+  deleteNotice.value = ''
+  try {
+    const result = await deleteStudentFeedbacks({ delete_all: true })
+    selectedFeedbackIds.value = []
+    deleteMode.value = false
+    showAllFeedbacks.value = false
+    deleteNotice.value = `${result.deleted_count}개의 기록을 모두 삭제했습니다.`
+    await loadProgress()
+  } catch (error) {
+    deleteNotice.value = '전체 삭제 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.'
+  } finally {
+    deleting.value = false
+  }
+}
+
 watch(searchQuery, () => {
+  showAllFeedbacks.value = false
+  selectedFeedbackIds.value = []
+  deleteMode.value = false
   selectedId.value = visibleFeedbacks.value[0]?.id || orderedFeedbacks.value[0]?.id || null
 })
 

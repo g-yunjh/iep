@@ -13,6 +13,11 @@
           </div>
         </div>
 
+        <div v-if="loading" class="status-banner spaced-sm">
+          <strong>관련 성취기준을 찾는 중입니다.</strong>
+          <p>입력한 키워드와 선택 과목을 바탕으로 가까운 기준을 다시 정리하고 있습니다.</p>
+        </div>
+
         <label class="spaced">
           <span class="section-label">검색어</span>
           <textarea v-model="filters.query" class="textarea-like spaced-sm" rows="4" />
@@ -23,8 +28,9 @@
             <span class="section-label">과목</span>
             <select v-model="filters.subject" class="input-like spaced-sm">
               <option value="">전체</option>
-              <option>수학</option>
-              <option>국어</option>
+              <option v-for="subject in subjectOptions" :key="subject.slug" :value="subject.label">
+                {{ subject.label }}
+              </option>
             </select>
           </label>
           <label>
@@ -155,9 +161,11 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { BookOpenCheck, SlidersHorizontal } from 'lucide-vue-next'
 import { searchCurriculum } from '../../api'
+import { useCurriculumSubjects } from '../../composables/useCurriculumSubjects'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
+const { subjectOptions, loadCurriculumSubjects } = useCurriculumSubjects()
 const route = useRoute()
 
 const loading = ref(false)
@@ -168,6 +176,15 @@ const filters = reactive({
   subject: '수학',
   grade: '',
   disability_type: '',
+})
+
+const subjectLabelMap = computed(() => {
+  const entries = {}
+  subjectOptions.value.forEach((subject) => {
+    entries[subject.slug] = subject.label
+    entries[subject.label] = subject.label
+  })
+  return entries
 })
 
 const selectedResult = computed(() => results.value[selectedIndex.value] || null)
@@ -198,8 +215,7 @@ function standardCode(item, index) {
 }
 
 function subjectLabel(subject) {
-  const map = { math: '수학', korean: '국어' }
-  return map[subject] || subject || '과목 정보 없음'
+  return subjectLabelMap.value[subject] || subject || '과목 정보 없음'
 }
 
 function scoreText(score) {
@@ -245,6 +261,13 @@ async function runSearch() {
 }
 
 onMounted(async () => {
+  await loadCurriculumSubjects()
+  if (filters.subject) {
+    const isValid = subjectOptions.value.some(
+      (subject) => subject.label === filters.subject || subject.slug === filters.subject,
+    )
+    if (!isValid) filters.subject = ''
+  }
   if (routeSearchQuery.value) filters.query = routeSearchQuery.value
   filters.disability_type = studentStore.student?.disability_type || ''
   await runSearch()

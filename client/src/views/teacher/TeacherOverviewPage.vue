@@ -78,6 +78,11 @@
           <span class="badge primary">Live API</span>
         </div>
 
+        <div v-if="loadingRecommendation" class="status-banner spaced-sm">
+          <strong>새 스캐폴딩 추천을 생성 중입니다.</strong>
+          <p>학생 관찰 기록과 선택 과목을 바탕으로 지원 수준과 전략을 다시 정리하고 있습니다.</p>
+        </div>
+
         <textarea
           v-model="observationDraft"
           class="textarea-like spaced-sm"
@@ -93,8 +98,9 @@
           <label>
             <span class="section-label">과목</span>
             <select v-model="recommendationForm.subject" class="input-like spaced-sm">
-              <option>수학</option>
-              <option>국어</option>
+              <option v-for="subject in subjectOptions" :key="subject.slug" :value="subject.label">
+                {{ subject.label }}
+              </option>
             </select>
           </label>
         </div>
@@ -197,12 +203,12 @@
             </article>
           </div>
           <button
-            v-if="activities.length > SUMMARY_LIMIT"
+            v-if="activities.length > ACTIVITY_PREVIEW_LIMIT"
             type="button"
             class="inline-more-button spaced-sm"
             @click="showAllActivities = !showAllActivities"
           >
-            {{ showAllActivities ? '추천 활동 접기' : `추천 활동 ${activities.length - SUMMARY_LIMIT}개 더 보기` }}
+            {{ showAllActivities ? '추천 활동 접기' : `추천 활동 ${activities.length - ACTIVITY_PREVIEW_LIMIT}개 더 보기` }}
           </button>
         </template>
 
@@ -216,8 +222,8 @@
     <aside class="column-stack">
       <section class="panel dark">
         <p class="eyebrow">Today Priority</p>
-        <h2 class="panel-title">학생 맞춤 수업 포인트</h2>
-        <p class="panel-subtitle">학생의 개별 특성을 고려한 오늘 수업 전 체크리스트입니다.</p>
+        <h2 class="panel-title">오늘 수업 체크포인트</h2>
+        <p class="panel-subtitle">학생 정보와 최근 기록을 반영한 수업 전 확인 목록입니다.</p>
 
         <div class="list-stack spaced">
           <div v-for="item in priorityList" :key="item" class="dark-list-item">{{ item }}</div>
@@ -279,9 +285,11 @@ import {
   getStudentProgress,
   mapLevelToKorean,
 } from '../../api'
+import { useCurriculumSubjects } from '../../composables/useCurriculumSubjects'
 import { useStudentStore } from '../../composables/useStudentStore'
 
 const { state: studentStore } = useStudentStore()
+const { subjectOptions, loadCurriculumSubjects } = useCurriculumSubjects()
 
 const observationDraft = ref(
   '수학 활동에서 수 모형을 보여주면 문제 풀이를 시작하지만, 말로만 설명하면 첫 단계에서 멈추고 도움을 요청하지 못합니다.',
@@ -292,11 +300,20 @@ const loadingRecommendation = ref(false)
 const showAllGaps = ref(false)
 const showAllActivities = ref(false)
 const SUMMARY_LIMIT = 3
+const ACTIVITY_PREVIEW_LIMIT = 4
 
 const recommendationForm = reactive({
   grade: '초등학교 3학년',
   subject: '수학',
 })
+
+function ensureSelectedSubject(currentValue) {
+  if (!subjectOptions.value.length) return currentValue
+  const isValid = subjectOptions.value.some(
+    (subject) => subject.label === currentValue || subject.slug === currentValue,
+  )
+  return isValid ? currentValue : subjectOptions.value[0].label
+}
 
 const studentName = computed(() => studentStore.student?.name || '이지훈')
 
@@ -356,7 +373,7 @@ const visibleGapItems = computed(() =>
   showAllGaps.value ? gapItems.value : gapItems.value.slice(0, SUMMARY_LIMIT),
 )
 const visibleActivities = computed(() =>
-  showAllActivities.value ? activities.value : activities.value.slice(0, SUMMARY_LIMIT),
+  showAllActivities.value ? activities.value : activities.value.slice(0, ACTIVITY_PREVIEW_LIMIT),
 )
 
 const standard = computed(() => quickRecommendation.value?.achievement_standard || null)
@@ -426,12 +443,72 @@ const previewStrategies = [
   '도움 요청 문장 카드 제공',
 ]
 
-const priorityList = [
-  '1. ADHD 투약 여부 및 아침 컨디션 확인',
-  '2. 수업 시작 전 시각적 스케줄러 배치',
-  '3. 과제 전환 시 3분 전 예고제 실시',
-  '4. 지시는 한 문장·한 단계, 성공 시 즉각 구두 강화',
-]
+const priorityList = computed(() => {
+  const aiPoints = quickRecommendation.value?.teaching_points
+  if (Array.isArray(aiPoints) && aiPoints.length) {
+    return aiPoints.slice(0, 4).map((item, index) => `${index + 1}. ${item}`)
+  }
+
+  const student = studentStore.student || {}
+  const sourceText = [
+    observationDraft.value,
+    latestFeedback.value?.teacher_description,
+    latestFeedback.value?.performance,
+    student.disability_type,
+    student.additional_diagnoses,
+    student.behavioral_traits,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  const items = []
+  if (/adhd|주의|산만|전환/.test(sourceText)) {
+    items.push('주의가 분산되기 쉬운 단계는 시작 전 자리 환경과 시각 단서를 확인')
+  }
+  if (/시각|카드|아이콘|번호|그림|순서/.test(sourceText)) {
+    items.push('핵심 조작 순서는 번호 카드나 그림 단서로 먼저 제시')
+  }
+  if (/말|구두|지시|설명/.test(sourceText)) {
+    items.push('구두 지시는 한 문장·한 단계로 줄이고 같은 시각 단서를 함께 제공')
+  }
+  if (/도움|멈|요청/.test(sourceText)) {
+    items.push('멈춘 지점에서 사용할 도움 요청 신호를 수업 전에 확인')
+  }
+
+  strategies.value.slice(0, 2).forEach((strategy) => {
+    const item = shortenPriorityText(strategy)
+    if (item) items.push(item)
+  })
+
+  if (standard.value?.standard_id) {
+    items.push(`${standard.value.standard_id} 기준과 연결해 성공 조건을 관찰`)
+  }
+
+  const fallbackItems = [
+    '수업 시작 전 학생의 컨디션과 과제 지속 가능 시간을 확인',
+    '처음 과제는 짧게 제시하고 성공 직후 구체적으로 강화',
+    '도움 강도는 관찰 반응에 맞춰 한 단계씩 줄이기',
+    '다음 활동 전 전환 신호를 미리 안내',
+  ]
+
+  const unique = [...new Set(items.filter(Boolean))]
+  fallbackItems.forEach((item) => {
+    if (unique.length < 4 && !unique.includes(item)) unique.push(item)
+  })
+
+  return unique.slice(0, 4).map((item, index) => `${index + 1}. ${item}`)
+})
+
+function shortenPriorityText(text) {
+  const cleaned = String(text || '')
+    .replace(/^(?:적용 시 고려사항|교육과정 내용요소|교육과정 성취수준 요소)\s*[:：]\s*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return ''
+  const firstSentence = cleaned.split(/[.!?。]/)[0]?.trim() || cleaned
+  return firstSentence.length > 58 ? `${firstSentence.slice(0, 58)}…` : firstSentence
+}
 
 function scoreToPercent(raw) {
   if (raw == null || raw === '') return '—'
@@ -529,6 +606,8 @@ async function createQuickRecommendation() {
 }
 
 onMounted(async () => {
+  await loadCurriculumSubjects()
+  recommendationForm.subject = ensureSelectedSubject(recommendationForm.subject)
   const progressData = await getStudentProgress()
   progress.value = progressData
 })

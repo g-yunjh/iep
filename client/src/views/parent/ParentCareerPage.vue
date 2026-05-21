@@ -50,6 +50,11 @@
           <span class="badge primary">진로 힌트</span>
         </div>
 
+        <div v-if="loading" class="status-banner spaced-sm">
+          <strong>새 진로 힌트를 생성 중입니다.</strong>
+          <p>강점과 좋아하는 활동을 바탕으로 진로 후보와 대화 힌트를 정리하고 있습니다.</p>
+        </div>
+
         <div class="list-stack spaced">
           <article v-for="career in recommendedCareers" :key="career.job_title" class="career-result">
             <div>
