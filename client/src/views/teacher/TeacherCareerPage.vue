@@ -180,8 +180,8 @@ import { useStudentStore } from '../../composables/useStudentStore'
 const { state: studentStore } = useStudentStore()
 const route = useRoute()
 
-const currentSkills = ref('손작업과 순서 기억이 안정적이며, 시각 자료를 활용한 활동에 오래 참여합니다.')
-const interestText = ref('그림 카드, 요리 활동, 반복 루틴')
+const currentSkills = ref('')
+const interestText = ref('')
 const careerRecommendation = ref(null)
 const selectedIndex = ref(0)
 const loading = ref(false)
@@ -261,8 +261,7 @@ watch(routeSearchQuery, async (query) => {
   await createRecommendation()
 })
 
-onMounted(async () => {
+onMounted(() => {
   if (routeSearchQuery.value) currentSkills.value = routeSearchQuery.value
-  await createRecommendation()
 })
 </script>

@@ -157,13 +157,11 @@ async function onSaveTraits() {
 }
 
 async function onSearchCareer() {
-  const result = await searchCareer(careerInterest.value || '창작 활동과 손작업')
+  const result = await searchCareer(careerInterest.value)
   careerResults.value = result.results || []
 }
 
 onMounted(async () => {
   schoolLife.value = await getSchoolLife()
-  const result = await searchCareer('시각 활동과 의사소통')
-  careerResults.value = result.results || []
 })
 </script>

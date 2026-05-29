@@ -172,8 +172,8 @@ const loading = ref(false)
 const results = ref([])
 const selectedIndex = ref(0)
 const filters = reactive({
-  query: '수 모형을 활용한 덧셈과 받아올림 단계 지원',
-  subject: '수학',
+  query: '',
+  subject: '',
   grade: '',
   disability_type: '',
 })
@@ -247,7 +247,7 @@ function extractSectionItems(content, sectionTitle) {
 async function runSearch() {
   loading.value = true
   try {
-    const response = await searchCurriculum(filters.query || '기초 학습 지원', {
+    const response = await searchCurriculum(filters.query, {
       subject: filters.subject || undefined,
       grade: filters.grade || undefined,
       disability_type: filters.disability_type || studentStore.student?.disability_type || undefined,

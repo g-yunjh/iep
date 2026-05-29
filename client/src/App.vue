@@ -124,7 +124,7 @@ const parentItems = [
 const navItems = computed(() => (isTeacherRoute.value ? teacherItems : parentItems))
 const studentDisplayName = computed(() => {
   const name = studentStore.student?.name?.trim()
-  return name || '이지훈'
+  return name || '학생'
 })
 const railAvatarLabel = computed(() => {
   const name = studentDisplayName.value.replace(/\s+/g, '')

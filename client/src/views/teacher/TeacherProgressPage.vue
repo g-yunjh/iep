@@ -240,7 +240,7 @@ const selectedFeedback = computed(() =>
   orderedFeedbacks.value[0] ||
   null,
 )
-const latestLevel = computed(() => selectedFeedback.value?.llm_analysis?.detected_level || '중')
+const latestLevel = computed(() => selectedFeedback.value?.llm_analysis?.detected_level || '')
 const progressSummary = computed(() => {
   const count = feedbacks.value.length
   return count > 0 ? `총 ${count}개의 피드백 기록이 있습니다.` : '아직 누적된 피드백 기록이 없습니다.'

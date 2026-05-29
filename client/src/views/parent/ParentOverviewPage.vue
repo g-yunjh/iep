@@ -36,8 +36,8 @@
         </div>
 
         <div class="callout spaced">
-          <strong>숙제 전 2단계 계획을 먼저 보여주세요.</strong>
-          <p>활동을 시작하기 전 “먼저 공책 펴기, 다음 문제 3개 풀기”처럼 짧은 순서를 확인하면 전환이 안정됩니다.</p>
+          <strong>{{ homeSupportTitle }}</strong>
+          <p>{{ homeSupportCopy }}</p>
         </div>
 
         <div class="list-stack spaced">
@@ -143,16 +143,23 @@ const progressSummary = computed(() => {
   return count > 0 ? `총 ${count}개의 피드백 기록이 있습니다.` : '아직 누적된 피드백 기록이 없습니다.'
 })
 const recentChanges = computed(() => {
-  if (!feedbacks.value.length) {
-    return ['그림 단서가 있을 때 집중 시간이 늘어납니다.', '활동 전환 전 예고가 있으면 불안이 줄어듭니다.']
-  }
+  if (!feedbacks.value.length) return []
   return feedbacks.value
     .slice(-3)
     .reverse()
     .map((feedback) => feedback.teacher_description || feedback.performance || '최근 기록이 저장되었습니다.')
 })
 
-const prepList = computed(() => schoolLife.value.tomorrow_prep || ['체육복', '색연필', '국어 공책'])
+const prepList = computed(() => schoolLife.value.tomorrow_prep || [])
+
+const homeSupportTitle = computed(() =>
+  feedbacks.value.length ? '최근 피드백을 확인해 주세요.' : '가정 지원 정보 대기',
+)
+const homeSupportCopy = computed(() =>
+  feedbacks.value.length
+    ? '저장된 피드백을 바탕으로 집에서 이어갈 지원을 확인할 수 있습니다.'
+    : 'mock API 또는 실제 API에서 피드백을 받아오면 가정 지원 내용이 표시됩니다.',
+)
 
 const supportSteps = [
   { title: '보여주기', copy: '말로 길게 설명하기보다 그림 또는 짧은 목록을 먼저 보여주세요.' },

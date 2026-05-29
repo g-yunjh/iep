@@ -125,8 +125,8 @@ const { state: studentStore } = useStudentStore()
 const route = useRoute()
 
 const loading = ref(false)
-const currentSkills = ref('손작업과 순서 기억이 안정적이고, 그림 자료를 보면 활동을 오래 지속합니다.')
-const interests = ref('요리, 만들기, 정리')
+const currentSkills = ref('')
+const interests = ref('')
 const careerRecommendation = ref(null)
 const searchResults = ref([])
 const routeSearchQuery = computed(() => (typeof route.query.q === 'string' ? route.query.q.trim() : ''))
@@ -140,7 +140,7 @@ const recommendedCareers = computed(() =>
 const skillGaps = computed(() =>
   careerRecommendation.value?.skill_gaps?.length
     ? careerRecommendation.value.skill_gaps.slice(0, 3)
-    : ['도구 이름 익히기', '작업 순서 말하기', '도움 요청하기'],
+    : [],
 )
 
 const pathStages = computed(() => careerRecommendation.value?.career_paths?.[0]?.stages || [])

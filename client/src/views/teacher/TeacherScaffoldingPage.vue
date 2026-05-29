@@ -237,8 +237,7 @@ const ACTIVITY_PREVIEW_LIMIT = 4
 const form = reactive({
   grade: '초등학교 3학년',
   subject: '수학',
-  teacher_description:
-    '수 모형을 보여주면 덧셈 활동을 시작하지만, 받아올림 단계에서 멈추고 도움 요청을 하지 못합니다.',
+  teacher_description: '',
 })
 
 function ensureSelectedSubject(currentValue) {
@@ -249,9 +248,9 @@ function ensureSelectedSubject(currentValue) {
   return isValid ? currentValue : subjectOptions.value[0].label
 }
 
-const studentName = computed(() => studentStore.student?.name || '이지훈')
+const studentName = computed(() => studentStore.student?.name || '학생 정보 없음')
 const studentProfile = computed(() => [
-  { label: '현재 수준', value: studentStore.student?.current_level || '초등 3학년 수준 입력 대기' },
+  { label: '현재 수준', value: studentStore.student?.current_level || '정보 없음' },
   { label: '장애 유형', value: studentStore.student?.disability_type || '정보 없음' },
   { label: '행동 특성', value: studentStore.student?.behavioral_traits || '관찰 필요' },
 ])
@@ -259,16 +258,13 @@ const studentProfile = computed(() => [
 const strategies = computed(() =>
   recommendation.value?.scaffolding_details?.strategies?.length
     ? recommendation.value.scaffolding_details.strategies
-    : ['한 번에 한 단계만 제시', '시각 단서를 먼저 제시', '완료 직후 강화'],
+    : [],
 )
 
 const activities = computed(() =>
   recommendation.value?.scaffolding_details?.activities?.length
     ? recommendation.value.scaffolding_details.activities
-    : [
-        { name: '단계 카드 정렬', description: '풀이 순서를 카드로 먼저 놓고 한 단계씩 수행합니다.' },
-        { name: '도움 요청 문장 연습', description: '멈춘 지점에서 사용할 짧은 요청 문장을 선택하게 합니다.' },
-      ],
+    : [],
 )
 
 const gapItems = computed(() => splitDisplayItems(detailRationaleSections.value?.gap))
@@ -289,7 +285,7 @@ const detailConfidence = computed(() => detailRationaleSections.value?.confidenc
 const relatedStandards = computed(() =>
   recommendation.value?.related_achievement_standards?.length
     ? recommendation.value.related_achievement_standards
-    : ['추천과 함께 참고할 성취기준이 여기에 표시됩니다.'],
+    : [],
 )
 
 function levelLabel(level) {

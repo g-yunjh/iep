@@ -291,9 +291,7 @@ import { useStudentStore } from '../../composables/useStudentStore'
 const { state: studentStore } = useStudentStore()
 const { subjectOptions, loadCurriculumSubjects } = useCurriculumSubjects()
 
-const observationDraft = ref(
-  '수학 활동에서 수 모형을 보여주면 문제 풀이를 시작하지만, 말로만 설명하면 첫 단계에서 멈추고 도움을 요청하지 못합니다.',
-)
+const observationDraft = ref('')
 const progress = ref({ feedbacks: [], progress_summary: '' })
 const quickRecommendation = ref(null)
 const loadingRecommendation = ref(false)
@@ -315,16 +313,16 @@ function ensureSelectedSubject(currentValue) {
   return isValid ? currentValue : subjectOptions.value[0].label
 }
 
-const studentName = computed(() => studentStore.student?.name || '이지훈')
+const studentName = computed(() => studentStore.student?.name || '학생 정보 없음')
 
 const studentCards = computed(() => [
   {
     label: '현재 수준',
-    value: studentStore.student?.current_level || '초등 3학년 수준 · 구체적 연산 단계에서 개별 지원 필요',
+    value: studentStore.student?.current_level || '정보 없음',
   },
   {
     label: '장애 유형',
-    value: studentStore.student?.disability_type || '경도 지적장애 · ADHD (프로필 등록 시 서버에 반영)',
+    value: studentStore.student?.disability_type || '정보 없음',
   },
   {
     label: '동반 진단',
@@ -332,9 +330,7 @@ const studentCards = computed(() => [
   },
   {
     label: '과제·주의 특성',
-    value:
-      studentStore.student?.behavioral_traits ||
-      '말로만 된 설명보다 시각·순서 단서가 있을 때 과제 지속 시간이 길어짐 · 전환 시 예고 필요',
+    value: studentStore.student?.behavioral_traits || '정보 없음',
   },
 ])
 
@@ -344,7 +340,7 @@ const progressSummary = computed(() => {
   return count > 0 ? `총 ${count}개의 피드백 기록이 있습니다.` : '아직 누적된 피드백 기록이 없습니다.'
 })
 const latestFeedback = computed(() => feedbacks.value.at(-1) || null)
-const latestLevel = computed(() => latestFeedback.value?.llm_analysis?.detected_level || '중')
+const latestLevel = computed(() => latestFeedback.value?.llm_analysis?.detected_level || '')
 
 const sideMetrics = computed(() => [
   { label: '기록 수', value: feedbacks.value.length, caption: '누적 피드백' },
@@ -356,16 +352,13 @@ const feedbackPreview = computed(() => feedbacks.value.slice(-3).reverse())
 const strategies = computed(() =>
   quickRecommendation.value?.scaffolding_details?.strategies?.length
     ? quickRecommendation.value.scaffolding_details.strategies
-    : previewStrategies,
+    : [],
 )
 
 const activities = computed(() =>
   quickRecommendation.value?.scaffolding_details?.activities?.length
     ? quickRecommendation.value.scaffolding_details.activities
-    : [
-        { name: '단계 카드 정렬', description: '풀이 순서를 카드로 먼저 놓고 한 단계씩 수행합니다.' },
-        { name: '도움 요청 문장 연습', description: '멈춘 지점에서 사용할 짧은 요청 문장을 선택하게 합니다.' },
-      ],
+    : [],
 )
 
 const gapItems = computed(() => splitDisplayItems(rationaleSections.value?.gap))
@@ -436,12 +429,7 @@ const evidenceList = computed(() => {
     .filter(Boolean)
 })
 
-const previewStrategies = [
-  '한 번에 한 단계만 제시',
-  '수 모형 또는 그림 단서 먼저 제공',
-  '완료 직후 구체적인 강화',
-  '도움 요청 문장 카드 제공',
-]
+const previewStrategies = []
 
 const priorityList = computed(() => {
   const aiPoints = quickRecommendation.value?.teaching_points
@@ -485,12 +473,7 @@ const priorityList = computed(() => {
     items.push(`${standard.value.standard_id} 기준과 연결해 성공 조건을 관찰`)
   }
 
-  const fallbackItems = [
-    '수업 시작 전 학생의 컨디션과 과제 지속 가능 시간을 확인',
-    '처음 과제는 짧게 제시하고 성공 직후 구체적으로 강화',
-    '도움 강도는 관찰 반응에 맞춰 한 단계씩 줄이기',
-    '다음 활동 전 전환 신호를 미리 안내',
-  ]
+  const fallbackItems = []
 
   const unique = [...new Set(items.filter(Boolean))]
   fallbackItems.forEach((item) => {
