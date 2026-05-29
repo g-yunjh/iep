@@ -4,7 +4,7 @@
       <div>
         <p class="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Student Profile</p>
         <h2 class="mt-2 text-2xl font-black tracking-normal text-slate-950">
-          {{ student?.name || '이지훈' }}
+          {{ student?.name || '학생 정보 없음' }}
         </h2>
         <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
           {{ student?.current_level || '현재 수준을 입력하면 추천과 요약이 더 정확해집니다.' }}

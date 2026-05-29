@@ -114,9 +114,9 @@ const schoolLife = ref({})
 const lunch = computed(() => schoolLife.value.lunch_menu || '정보 없음')
 const timetable = computed(() => {
   const items = schoolLife.value.today_timetable || []
-  return items.length ? items : ['국어', '수학', '미술']
+  return items
 })
-const prepList = computed(() => schoolLife.value.tomorrow_prep || ['체육복', '색연필', '국어 공책'])
+const prepList = computed(() => schoolLife.value.tomorrow_prep || [])
 
 const mainCards = computed(() => [
   { label: '점심', value: shortText(lunch.value), caption: '급식' },

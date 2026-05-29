@@ -1,13 +1,8 @@
 import { computed, reactive, readonly } from 'vue'
 import { getCurriculumSubjects } from '../api'
 
-const FALLBACK_SUBJECTS = [
-  { slug: 'math', label: '수학' },
-  { slug: 'korean', label: '국어' },
-]
-
 const state = reactive({
-  subjects: FALLBACK_SUBJECTS.map((subject) => ({ ...subject })),
+  subjects: [],
   loading: false,
   loaded: false,
   error: '',
@@ -20,14 +15,12 @@ async function loadCurriculumSubjects(force = false) {
   state.error = ''
   try {
     const subjects = await getCurriculumSubjects()
-    state.subjects = Array.isArray(subjects) && subjects.length
-      ? subjects
-      : FALLBACK_SUBJECTS.map((subject) => ({ ...subject }))
+    state.subjects = Array.isArray(subjects) ? subjects : []
     state.loaded = true
     return state.subjects
   } catch (error) {
     state.error = '과목 목록을 불러오지 못했습니다.'
-    state.subjects = FALLBACK_SUBJECTS.map((subject) => ({ ...subject }))
+    state.subjects = []
     console.error(error)
     return state.subjects
   } finally {
@@ -36,9 +29,7 @@ async function loadCurriculumSubjects(force = false) {
 }
 
 export function useCurriculumSubjects() {
-  const subjectOptions = computed(() =>
-    state.subjects.length ? state.subjects : FALLBACK_SUBJECTS,
-  )
+  const subjectOptions = computed(() => state.subjects)
 
   return {
     state: readonly(state),

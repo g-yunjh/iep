@@ -169,14 +169,12 @@ async function onRecommendScaffolding() {
 }
 
 async function onSearchCurriculum() {
-  const result = await searchCurriculum(curriculumQuery.value || '기초 학습 집중')
+  const result = await searchCurriculum(curriculumQuery.value)
   curriculumResults.value = result.results || []
 }
 
 onMounted(async () => {
   const progressData = await getStudentProgress()
   progressFeedbacks.value = progressData.feedbacks || []
-  const searchResult = await searchCurriculum('읽기와 수학 기초')
-  curriculumResults.value = searchResult.results || []
 })
 </script>
