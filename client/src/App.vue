@@ -149,7 +149,7 @@ const headers = {
   '/teacher/curriculum': {
     eyebrow: '교사용 워크벤치 · 기준 상세 화면',
     title: '성취기준 근거 검색',
-    copy: '국어와 수학 성취기준을 검색하고 AI 추천의 근거로 사용할 기준을 선택합니다.',
+    copy: '과목별 성취기준을 검색하고 AI 추천의 근거로 사용할 기준을 선택합니다.',
     search: '성취기준, 과목, 키워드 검색',
   },
   '/teacher/progress': {
