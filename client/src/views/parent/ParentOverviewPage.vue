@@ -145,7 +145,7 @@ const progressSummary = computed(() => {
 const recentChanges = computed(() => {
   if (!feedbacks.value.length) return []
   return feedbacks.value
-    .slice(-3)
+    .slice(-4)
     .reverse()
     .map((feedback) => feedback.teacher_description || feedback.performance || '최근 기록이 저장되었습니다.')
 })

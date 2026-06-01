@@ -161,6 +161,21 @@ function percentText(score) {
   return `${Math.round(score * 100)}%`
 }
 
+function formatInterestInput(value) {
+  if (Array.isArray(value)) return value.join(', ')
+  return value || ''
+}
+
+function applyCareerInputEcho(response) {
+  const sampleInput = response?.sample_input || {}
+  if (!currentSkills.value && (sampleInput.current_skills || response?.current_skills || response?.query)) {
+    currentSkills.value = sampleInput.current_skills || response.current_skills || response.query
+  }
+  if (!interests.value && sampleInput.interests) {
+    interests.value = formatInterestInput(sampleInput.interests)
+  }
+}
+
 async function recommendCareer() {
   loading.value = true
   try {
@@ -170,6 +185,7 @@ async function recommendCareer() {
       disability_type: studentStore.student?.disability_type || undefined,
       interests: interests.value.split(',').map((item) => item.trim()).filter(Boolean),
     })
+    applyCareerInputEcho(careerRecommendation.value)
   } finally {
     loading.value = false
   }
@@ -177,6 +193,7 @@ async function recommendCareer() {
 
 async function refreshCareerSearch() {
   const response = await searchCareer(currentSkills.value, { current_skills: currentSkills.value, k: 3 })
+  applyCareerInputEcho(response)
   searchResults.value = response.results || []
 }
 

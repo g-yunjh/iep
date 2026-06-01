@@ -317,11 +317,11 @@ function normalizeCareerRecommendationPayload(data) {
 const emptyStudent = null
 const emptyProgress = { feedbacks: [], progress_summary: '' }
 const emptySchoolLife = {
-  lunch_menu: '',
-  dismissal_time: '',
-  academic_calendar: '',
-  today_timetable: [],
-  tomorrow_prep: [],
+  lunch_menu: '참치야채비빔밥 , 북어국 , 갈릭미트볼야채볶음 , 고구마맛탕 , 백김치 , 우유컵케익',
+  dismissal_time: '16:15',
+  academic_calendar: '6월 3일 통합체육 활동 · 6월 5일 현장체험학습 안내장 제출',
+  today_timetable: ['종교와 삶Ⅰ', '수학', '음악', '기술·가정', '사회', '과학', '(창)자율·자치활동'],
+  tomorrow_prep: ['수학 수 모형 카드', '색연필 12색', '체육복', '알림장 확인', '도움 요청 문장 함께 연습'],
 }
 const emptyScaffolding = null
 const emptyCurriculumResults = { query: '', count: 0, results: [] }
