@@ -354,12 +354,32 @@ function resetDraft() {
   recommendation.value = null
 }
 
+function subjectInputValue(subject) {
+  if (!subject) return ''
+  const matched = subjectOptions.value.find((item) => item.label === subject || item.slug === subject)
+  return matched?.label || subject
+}
+
+function applyRecommendationInputEcho(response) {
+  const sampleInput = response?.sample_input || {}
+  if (!form.teacher_description && sampleInput.teacher_description) {
+    form.teacher_description = sampleInput.teacher_description
+  }
+  if (!form.grade && sampleInput.grade) {
+    form.grade = sampleInput.grade
+  }
+  if (!form.subject && sampleInput.subject) {
+    form.subject = subjectInputValue(sampleInput.subject)
+  }
+}
+
 async function requestRecommendation() {
   loading.value = true
   try {
     showAllGaps.value = false
     showAllActivities.value = false
     recommendation.value = await getScaffoldingRecommendation({ ...form })
+    applyRecommendationInputEcho(recommendation.value)
     const progressData = await getStudentProgress()
     feedbacks.value = progressData.feedbacks || []
   } finally {

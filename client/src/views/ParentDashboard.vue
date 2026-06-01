@@ -139,6 +139,13 @@ const traitForm = reactive({
 
 const prepList = computed(() => (schoolLife.value.tomorrow_prep || []).join(', '))
 
+function applyCareerSearchInputEcho(response) {
+  const sampleInput = response?.sample_input || {}
+  if (!careerInterest.value && (sampleInput.current_skills || response?.query)) {
+    careerInterest.value = sampleInput.current_skills || response.query
+  }
+}
+
 watch(
   () => props.student,
   (student) => {
@@ -158,6 +165,7 @@ async function onSaveTraits() {
 
 async function onSearchCareer() {
   const result = await searchCareer(careerInterest.value)
+  applyCareerSearchInputEcho(result)
   careerResults.value = result.results || []
 }
 

@@ -570,6 +570,25 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })
 }
 
+function subjectInputValue(subject) {
+  if (!subject) return ''
+  const matched = subjectOptions.value.find((item) => item.label === subject || item.slug === subject)
+  return matched?.label || subject
+}
+
+function applyScaffoldingInputEcho(response) {
+  const sampleInput = response?.sample_input || {}
+  if (!observationDraft.value && sampleInput.teacher_description) {
+    observationDraft.value = sampleInput.teacher_description
+  }
+  if (!recommendationForm.grade && sampleInput.grade) {
+    recommendationForm.grade = sampleInput.grade
+  }
+  if (!recommendationForm.subject && sampleInput.subject) {
+    recommendationForm.subject = subjectInputValue(sampleInput.subject)
+  }
+}
+
 async function createQuickRecommendation() {
   loadingRecommendation.value = true
   try {
@@ -582,6 +601,7 @@ async function createQuickRecommendation() {
       disability_type: studentStore.student?.disability_type || undefined,
       additional_diagnoses: studentStore.student?.additional_diagnoses || undefined,
     })
+    applyScaffoldingInputEcho(quickRecommendation.value)
     progress.value = await getStudentProgress()
   } finally {
     loadingRecommendation.value = false

@@ -47,7 +47,6 @@
         <p class="panel-subtitle">
           추천 직업, 역량 격차, 단계별 경로를 한 번에 받습니다. 수업·상담에 바로 연결할 수 있도록 정리했습니다.
         </p>
-        <span class="badge primary spaced-sm">POST /rag/career-recommendation</span>
       </section>
     </aside>
 
@@ -232,6 +231,18 @@ function percentText(score) {
   return `${Math.round(score * 100)}%`
 }
 
+function applyCareerInputEcho(response) {
+  const sampleInput = response?.sample_input || {}
+  if (!currentSkills.value && (sampleInput.current_skills || response?.current_skills)) {
+    currentSkills.value = sampleInput.current_skills || response.current_skills
+  }
+  if (!interestText.value && sampleInput.interests) {
+    interestText.value = Array.isArray(sampleInput.interests)
+      ? sampleInput.interests.join(', ')
+      : sampleInput.interests
+  }
+}
+
 async function createRecommendation() {
   loading.value = true
   errorMessage.value = ''
@@ -242,6 +253,7 @@ async function createRecommendation() {
       disability_type: studentStore.student?.disability_type || undefined,
       interests: interestText.value.split(',').map((item) => item.trim()).filter(Boolean),
     })
+    applyCareerInputEcho(careerRecommendation.value)
     selectedIndex.value = 0
   } catch (error) {
     errorMessage.value = '잠시 후 다시 시도해 주세요. 서버 연결 또는 AI 응답 시간이 길어졌을 수 있습니다.'

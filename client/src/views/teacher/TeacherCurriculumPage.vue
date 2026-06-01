@@ -218,9 +218,25 @@ function subjectLabel(subject) {
   return subjectLabelMap.value[subject] || subject || '과목 정보 없음'
 }
 
+function subjectInputValue(subject) {
+  if (!subject) return ''
+  const matched = subjectOptions.value.find((item) => item.label === subject || item.slug === subject)
+  return matched?.label || subject
+}
+
 function scoreText(score) {
   if (typeof score !== 'number') return '-'
   return score.toFixed(2)
+}
+
+function applySearchInputEcho(response) {
+  const sampleInput = response?.sample_input || {}
+  if (!filters.query && response?.query) filters.query = response.query
+  if (!filters.subject && sampleInput.subject) filters.subject = subjectInputValue(sampleInput.subject)
+  if (!filters.grade && sampleInput.grade) filters.grade = sampleInput.grade
+  if (!filters.disability_type && sampleInput.disability_type) {
+    filters.disability_type = sampleInput.disability_type
+  }
 }
 
 function extractSectionItems(content, sectionTitle) {
@@ -253,6 +269,7 @@ async function runSearch() {
       disability_type: filters.disability_type || studentStore.student?.disability_type || undefined,
       k: 6,
     })
+    applySearchInputEcho(response)
     results.value = response.results || []
     selectedIndex.value = 0
   } finally {

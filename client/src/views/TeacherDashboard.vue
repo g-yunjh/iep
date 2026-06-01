@@ -153,6 +153,19 @@ const hasAdhd = computed(() =>
   (props.student?.additional_diagnoses || '').toLowerCase().includes('adhd'),
 )
 
+function applyScaffoldingInputEcho(response) {
+  const sampleInput = response?.sample_input || {}
+  if (!observationText.value && sampleInput.teacher_description) {
+    observationText.value = sampleInput.teacher_description
+  }
+}
+
+function applyCurriculumInputEcho(response) {
+  if (!curriculumQuery.value && response?.query) {
+    curriculumQuery.value = response.query
+  }
+}
+
 function formatDate(value) {
   if (!value) return '-'
   return new Date(value).toLocaleString('ko-KR')
@@ -165,11 +178,13 @@ async function onRecommendScaffolding() {
     subject: '통합',
     teacher_description: observationText.value,
   })
+  applyScaffoldingInputEcho(scaffoldingResult.value)
   isScaffoldLoading.value = false
 }
 
 async function onSearchCurriculum() {
   const result = await searchCurriculum(curriculumQuery.value)
+  applyCurriculumInputEcho(result)
   curriculumResults.value = result.results || []
 }
 
