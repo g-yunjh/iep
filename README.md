@@ -15,9 +15,12 @@
 - [4. 해결 방안](#4-해결-방안)
   - [이론적 배경: 근접발달영역(ZPD)](#이론적-배경-근접발달영역zpd)
   - [기술적 배경: RAG 아키텍처](#기술적-배경-rag-아키텍처)
-- [5. 기술 스택](#5-기술-스택-tech-stack)
+- [5. 기술 스택 및 구조](#5-기술-스택-및-구조)
+  - [기술 스택(Tech Stack)](#기술-스택tech-stack)
+  - [프로젝트 폴더 구조(Directory Structure)](#프로젝트-폴더-구조directory-structure)
 - [6. 핵심 기능 소개 및 데모](#6-핵심-기능-소개-및-데모)
-- [7. 사용 데이터 및 설명](#7-사용-데이터-및-설명-data-sources)
+- [7. 사용 데이터 및 설명](#7-사용-데이터-및-설명)
+- [8. 라이선스](#8-라이선스)
 
 <br>
 
@@ -120,13 +123,15 @@
 
 <br>
 
-## 5. 기술 스택
+## 5. 기술 스택 및 구조
+
+### 기술 스택(Tech Stack)
 
 <p align="center">
   <img src="img/system_architecture.png" alt="시스템 아키텍처">
 </p>
 
-### Frontend
+#### Frontend
 
 | Stack | Rationale |
 | :--- | :--- |
@@ -134,14 +139,14 @@
 | ![Vite](https://img.shields.io/badge/vite-%23646CFF.svg?style=flat-square&logo=vite&logoColor=white) | HMR(Hot Module Replacement) 속도가 빨라 UI 컴포넌트 개발 및 피드백 루프 단축에 압도적인 생산성을 제공하여 도입 |
 | ![TailwindCSS](https://img.shields.io/badge/tailwindcss-%2338B2AC.svg?style=flat-square&logo=tailwind-css&logoColor=white) | 별도의 CSS 파일 분리 없이 유틸리티 클래스 기반으로 빠르게 일관된 UI 시스템을 구축하고, 반응형 대시보드를 효율적으로 구현하기 위해 사용 |
 
-### Backend
+#### Backend
 
 | Stack | Rationale |
 | :--- | :--- |
 | ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi&logoColor=white) | 비동기(Async/Await) 처리를 기본 지원하여 AI 모델 API 호출 시 병목을 줄이고, Pydantic 기반의 자동 데이터 검증 및 Swagger 문서 자동화로 협업 효율 제고 |
 | ![Python](https://img.shields.io/badge/python-3670A0?style=flat-square&logo=python&logoColor=ffdd54) | 공공데이터 가공, 텍스트 청킹 스크립트 작성 및 LangChain/Gemini 등 AI 인프라 생태계 라이브러리와의 유연한 결합을 위해 메인 언어로 채택 |
 
-### Database & AI Pipeline
+#### Database & AI Pipeline
 
 | Stack | Rationale |
 | :--- | :--- |
@@ -150,13 +155,40 @@
 | ![Google Gemini](https://img.shields.io/badge/Google%20Gemini-8E75FF?style=flat-square&logo=googlegemini&logoColor=white) | 대용량 컨텍스트 윈도우와 뛰어난 비용 효율성(`gemini-2.5-flash`), 고성능 임베딩 기능(`text-embedding-004`)을 동시에 활용하기 위해 선택 |
 | ![LangChain](https://img.shields.io/badge/LangChain-1C3C3A?style=flat-square&logo=chainlink&logoColor=white) | 다양한 데이터 로더(JSON, CSV) 및 프롬프트 템플릿 관리, RAG 체인 구축을 추상화하여 AI 비즈니스 로직의 결합도를 낮추기 위해 도입 |
 
-### DevOps & Infrastructure
+#### DevOps & Infrastructure
 
 | Stack | Rationale |
 | :--- | :--- |
 | ![Oracle Cloud](https://img.shields.io/badge/Oracle-F80000?style=flat-square&logo=oracle&logoColor=white) | 상시 무료 VM 레이어를 활용하여 인프라 비용 부담 없이 Docker 컨테이너 기반의 백엔드 및 데이터베이스 레이어를 안정적으로 독립 호스팅하기 위해 사용 |
 | ![Vercel](https://img.shields.io/badge/vercel-%23000000.svg?style=flat-square&logo=vercel&logoColor=white) | Vue.js 프론트엔드의 빌드 및 배포 파이프라인(CI/CD)을 자동화하고, 전 세계 엣지 네트워크를 통한 빠른 대시보드 로딩 성능을 확보하기 위해 선택 |
 | ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=flat-square&logo=docker&logoColor=white) | 개발 환경(로컬)과 배포 환경(OCI VM) 간의 환경 차이로 인한 이슈를 제거하고, 복잡한 데이터베이스(PostgreSQL, ChromaDB)를 Docker Compose로 단일 컨테이너화하여 관리하기 위해 도입 |
+
+
+### 프로젝트 폴더 구조(Directory Structure)
+
+```text
+📦 tium
+ ┣ 📂 client               # Vue.js 프론트엔드
+ ┃ ┣ 📂 public             # 정적 에셋 (파비콘, 공통 아이콘 등)
+ ┃ ┗ 📂 src                # 애플리케이션 소스 코드
+ ┃ ┃ ┣ 📂 api              # 백엔드 API 연동 정의
+ ┃ ┃ ┣ 📂 components       # 대시보드 공통 UI 컴포넌트
+ ┃ ┃ ┣ 📂 composables      # 상태 관리 및 맞춤형 비즈니스 로직 (Custom Composables)
+ ┃ ┃ ┣ 📂 router          # Vue Router 라우팅 설정
+ ┃ ┃ ┗ 📂 views           # 교사용 / 학부모용 대시보드 및 세부 서브 페이지
+ ┗ 📂 server               # FastAPI 백엔드 & AI 파이프라인
+   ┣ 📂 app                # 백엔드 핵심 애플리케이션 로직
+   ┃ ┣ 📂 api              # RAG 체인 및 학생 프로필 관리 API 엔드포인트
+   ┃ ┣ 📂 core             # 시스템 환경 변수 및 보안 설정
+   ┃ ┣ 📂 db               # 데이터베이스 연결 및 SQLAlchemy ORM 모델
+   ┃ ┣ 📂 schemas          # Pydantic 기반 데이터 검증 및 직렬화 스키마
+   ┃ ┗ 📂 services         # RAG 오케스트레이터, LLM(Gemini) 연동, 나이스(NEIS) API 등 핵심 서비스 레이어
+   ┣ 📂 data               # RAG 지식 베이스(Knowledge Base) 구축용 임베딩 대상 공공데이터
+   ┃ ┣ 📂 careers          # 커리어넷 제공 직업 정보 데이터셋 (JSON)
+   ┃ ┗ 📂 curriculum       # 2022 개정 특수교육과정 성취기준 및 풀(Pool) 데이터셋 (JSON)
+   ┣ 📜 Dockerfile         # 백엔드 애플리케이션 도커 빌드 프로파일
+   ┗ 📜 docker-compose.yml # 로컬 개발 환경용 데이터베이스(PostgreSQL, ChromaDB) 컨테이너 설정
+```
 
 <br>
 
@@ -224,3 +256,13 @@
 > - **목적**: AI 시스템(RAG) 적용을 위한 JSON 구조화 및 Chunking 전처리 진행
 > - **범위**: 원본 의미 훼손 없이 출품 목적에 한하여 승인 완료
 > - **승인 기관**: 국립특수교육원 승인, 대회 운영 사무국 승인
+
+<br>
+
+## 8. 라이선스 및 이용 제한 안내
+
+본 프로젝트는 **제8회 교육공공데이터 AI활용대회 출품**을 목적으로 개발되었습니다. 프로젝트에 포함된 핵심 지식 베이스의 라이선스 규정에 따라, **본 레포지토리의 소스 코드 및 가공된 데이터의 무단 복제, 배포, 상업적 이용 및 출품 목적 이외의 모든 사용을 엄격히 금지**합니다.
+
+- **소스 코드 (Source Code)**: 본 프로젝트의 모든 소스 코드에 대한 저작권은 개발팀에 있습니다. 명시적인 허가 없는 일체의 재사용을 금지합니다. (All Rights Reserved)
+- **국립특수교육원 데이터**: 서비스 내 RAG 아키텍처에 활용된 '특수교육 성취기준 풀(Pool)' 등의 데이터는 **국립특수교육원의 사전 승인을 받아 본 대회 출품 목적으로만 제한적으로 형태 변환(JSON 구조화) 및 사용**되었습니다. **해당 데이터는 어떠한 경우에도 출품 목적 이외의 용도로 사용될 수 없습니다.** (데이터 출처: 국립특수교육원)
+- **기타 공공데이터**: 교육부, 한국직업능력개발원(커리어넷) 등에서 제공받은 기타 공공데이터는 명시된 출처의 공공누리(KOGL) 이용 조건에 따라 적법하게 활용되었습니다.
